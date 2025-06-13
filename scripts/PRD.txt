@@ -1,0 +1,77 @@
+# Overview  
+This project aims to port the functionality of the Rust-based `dcap-qvl` library to TypeScript. The goal is to provide a pure TypeScript implementation of DCAP (Data Center Attestation Primitives) quote verification, supporting both SGX (Software Guard Extensions) and TDX (Trust Domain Extensions) quotes. The TypeScript version should offer equivalent features, usability, and security guarantees, and be suitable for Node.js environments.
+
+# Core Features  
+- **Verify SGX and TDX quotes**  
+  - Accept a raw quote (SGX or TDX) and verify its authenticity and integrity using collateral data.
+  - Return a detailed verification report, including status, advisory IDs, and extracted report data.
+- **Fetch collateral from PCCS or Intel PCS**  
+  - Retrieve necessary collateral (TCB info, QE identity, etc.) from a PCCS server or Intel PCS endpoints.
+  - Support configurable endpoints and timeouts.
+- **Extract information from quotes**  
+  - Parse and expose fields from SGX/TDX quotes, including FMSPC, report data, and certification chains.
+- **Library API**  
+  - Expose a TypeScript/JavaScript API for programmatic use.
+- **Async/Await Support**  
+  - All network and I/O operations should be asynchronous.
+- **Comprehensive Error Handling**  
+  - Return clear, actionable errors for all failure cases.
+
+# User Experience  
+- **User Personas**  
+  - Security engineers, cloud platform developers, and integrators working with confidential computing and attestation.
+- **Key User Flows**  
+  - As a developer, I can import the library and call verification functions in my TypeScript/JavaScript code.
+- **UI/UX Considerations**  
+  - Library API should use idiomatic TypeScript types and Promises.
+
+<PRD>
+# Technical Architecture  
+- **System Components**  
+  - TypeScript library (core logic, quote parsing, verification, collateral fetching)
+- **Data Models**  
+  - Quote, Collateral, VerificationReport, and related types, modeled after the Rust structs (e.g., `QuoteCollateralV3`, `VerifiedReport`, `Quote`, `EnclaveReport`, etc.)
+- **APIs and Integrations**  
+  - HTTP(S) requests to PCCS/Intel PCS endpoints for collateral
+  - File system access for reading quote files (Node.js)
+- **Infrastructure Requirements**  
+  - Node.js 18+ (for native async/await, fetch API, etc.)
+  - TypeScript 5+
+  - Testing framework (e.g., Jest)
+
+# Development Roadmap  
+- **Phase 1: Core Library**  
+  - Implement quote parsing and data models in TypeScript
+  - Implement collateral fetching from PCCS/Intel PCS
+  - Implement quote verification logic (port from Rust, ensure cryptographic correctness)
+  - Provide TypeScript API for verification and parsing
+- **Phase 2: Testing and Validation**  
+  - Unit and integration tests for all features
+  - Test vectors for SGX/TDX quotes and collateral
+  - Fuzz and edge case testing
+- **Phase 3: Advanced/Optional**  
+  - Performance optimizations
+  - Documentation and usage examples
+
+# Logical Dependency Chain
+- Implement data models and quote parsing first (foundation for all other features)
+- Implement collateral fetching (required for verification)
+- Implement verification logic (depends on parsing and collateral)
+- Add tests and validation after core features are complete
+- Optimize and extend last
+
+# Risks and Mitigations  
+- **Technical challenges**: Porting cryptographic and binary parsing logic from Rust to TypeScript may introduce subtle bugs.  
+  - *Mitigation*: Use existing test vectors, reference implementations, and thorough testing.
+- **Cryptography**: Ensuring equivalent security guarantees in TypeScript (especially for signature verification, ASN.1/DER parsing, etc.).  
+  - *Mitigation*: Use well-maintained crypto libraries (e.g., node-forge, WebCrypto, or similar).
+- **MVP definition**: Scoping the initial implementation to match the Rust feature set without over-engineering.  
+  - *Mitigation*: Follow the Rust project's structure and features closely.
+- **Resource constraints**: Time and expertise required for cryptographic porting.  
+  - *Mitigation*: Prioritize core verification and parsing logic; defer advanced features.
+
+# Appendix  
+- **Reference**: [dcap-qvl Rust project](https://github.com/Phala-Network/dcap-qvl)
+- **Technical specifications**: Intel SGX/DCAP documentation, PCCS/PCS API docs
+- **Test vectors**: Use sample quotes and collateral from the Rust repo's `sample/` directory
+</PRD> 
