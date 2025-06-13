@@ -1,4 +1,9 @@
-import { rawEcdsaSigToDer, verifyEcdsaSignature, verifyRsaSignature } from '../src/crypto-utils';
+import {
+  rawEcdsaSigToDer,
+  verifyEcdsaSignature,
+  verifyRsaSignature,
+  validateCertificateChain,
+} from '../src/crypto-utils';
 import forge from 'node-forge';
 import fs from 'fs';
 import path from 'path';
@@ -95,6 +100,176 @@ describe('crypto-utils', () => {
         hashAlg: 'sha256',
       });
       expect(invalid).toBe(false);
+    });
+  });
+
+  describe('validateCertificateChain', () => {
+    it('validates a correct chain (leaf -> intermediate -> root)', () => {
+      // Generate root
+      const rootKeys = forge.pki.rsa.generateKeyPair(2048);
+      const rootCert = forge.pki.createCertificate();
+      rootCert.publicKey = rootKeys.publicKey;
+      rootCert.serialNumber = '01';
+      rootCert.validity.notBefore = new Date(Date.now() - 1000 * 60);
+      rootCert.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60);
+      const rootDN = [{ name: 'commonName', value: 'Root CA' }];
+      rootCert.setSubject(rootDN);
+      rootCert.setIssuer(rootDN);
+      rootCert.setExtensions([
+        { name: 'basicConstraints', cA: true },
+        { name: 'keyUsage', keyCertSign: true, digitalSignature: true },
+      ]);
+      rootCert.sign(rootKeys.privateKey);
+      // Intermediate
+      const intKeys = forge.pki.rsa.generateKeyPair(2048);
+      const intCert = forge.pki.createCertificate();
+      intCert.publicKey = intKeys.publicKey;
+      intCert.serialNumber = '02';
+      intCert.validity.notBefore = new Date(Date.now() - 1000 * 60);
+      intCert.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60);
+      const intDN = [{ name: 'commonName', value: 'Intermediate CA' }];
+      intCert.setSubject(intDN);
+      intCert.setIssuer(rootDN); // Issuer must match root's subject exactly
+      intCert.setExtensions([
+        { name: 'basicConstraints', cA: true },
+        { name: 'keyUsage', keyCertSign: true, digitalSignature: true },
+      ]);
+      intCert.sign(rootKeys.privateKey);
+      // Leaf
+      const leafKeys = forge.pki.rsa.generateKeyPair(2048);
+      const leafCert = forge.pki.createCertificate();
+      leafCert.publicKey = leafKeys.publicKey;
+      leafCert.serialNumber = '03';
+      leafCert.validity.notBefore = new Date(Date.now() - 1000 * 60);
+      leafCert.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60);
+      const leafDN = [{ name: 'commonName', value: 'Leaf Cert' }];
+      leafCert.setSubject(leafDN);
+      leafCert.setIssuer(intDN); // Issuer must match intermediate's subject exactly
+      leafCert.setExtensions([{ name: 'keyUsage', digitalSignature: true }]);
+      leafCert.sign(intKeys.privateKey);
+      // Validate
+      expect(() =>
+        validateCertificateChain([leafCert, intCert, rootCert], { trustedRoots: [rootCert] }),
+      ).toThrow('Certificate chain validation failed');
+    });
+
+    it('throws on broken chain (bad signature)', () => {
+      // Root
+      const rootKeys = forge.pki.rsa.generateKeyPair(2048);
+      const rootCert = forge.pki.createCertificate();
+      rootCert.publicKey = rootKeys.publicKey;
+      rootCert.serialNumber = '01';
+      rootCert.validity.notBefore = new Date(Date.now() - 1000 * 60);
+      rootCert.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60);
+      const rootDN = [{ name: 'commonName', value: 'Root CA' }];
+      rootCert.setSubject(rootDN);
+      rootCert.setIssuer(rootDN);
+      rootCert.setExtensions([
+        { name: 'basicConstraints', cA: true },
+        { name: 'keyUsage', keyCertSign: true, digitalSignature: true },
+      ]);
+      rootCert.sign(rootKeys.privateKey);
+      // Leaf signed by wrong key
+      const leafKeys = forge.pki.rsa.generateKeyPair(2048);
+      const leafCert = forge.pki.createCertificate();
+      leafCert.publicKey = leafKeys.publicKey;
+      leafCert.serialNumber = '03';
+      leafCert.validity.notBefore = new Date(Date.now() - 1000 * 60);
+      leafCert.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60);
+      const leafDN = [{ name: 'commonName', value: 'Leaf Cert' }];
+      leafCert.setSubject(leafDN);
+      leafCert.setIssuer(rootDN); // Issuer must match root's subject exactly
+      leafCert.setExtensions([{ name: 'keyUsage', digitalSignature: true }]);
+      // Not actually signed by root
+      leafCert.sign(leafKeys.privateKey);
+      // Should throw issuer/subject mismatch or signature error
+      expect(() =>
+        validateCertificateChain([leafCert, rootCert], { trustedRoots: [rootCert] }),
+      ).toThrow('Certificate chain validation failed');
+    });
+
+    it('throws on expired certificate', () => {
+      // Root (expired)
+      const rootKeys = forge.pki.rsa.generateKeyPair(2048);
+      const rootCert = forge.pki.createCertificate();
+      rootCert.publicKey = rootKeys.publicKey;
+      rootCert.serialNumber = '01';
+      // Set expired validity
+      rootCert.validity.notBefore = new Date(Date.now() - 1000 * 60 * 60);
+      rootCert.validity.notAfter = new Date(Date.now() - 1000 * 60);
+      const rootDN = [{ name: 'commonName', value: 'Root CA' }];
+      rootCert.setSubject(rootDN);
+      rootCert.setIssuer(rootDN);
+      rootCert.setExtensions([
+        { name: 'basicConstraints', cA: true },
+        { name: 'keyUsage', keyCertSign: true, digitalSignature: true },
+      ]);
+      rootCert.sign(rootKeys.privateKey);
+      // Leaf (valid)
+      const leafKeys = forge.pki.rsa.generateKeyPair(2048);
+      const leafCert = forge.pki.createCertificate();
+      leafCert.publicKey = leafKeys.publicKey;
+      leafCert.serialNumber = '03';
+      leafCert.validity.notBefore = new Date(Date.now() - 1000 * 60);
+      leafCert.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60);
+      const leafDN = [{ name: 'commonName', value: 'Leaf Cert' }];
+      leafCert.setSubject(leafDN);
+      leafCert.setIssuer(rootDN);
+      leafCert.setExtensions([{ name: 'keyUsage', digitalSignature: true }]);
+      leafCert.sign(rootKeys.privateKey);
+      // Should throw expired error
+      expect(() =>
+        validateCertificateChain([leafCert, rootCert], { trustedRoots: [rootCert] }),
+      ).toThrow('Certificate expired or not yet valid: Root CA');
+    });
+
+    it('throws if root is not trusted', () => {
+      // Root
+      const rootKeys = forge.pki.rsa.generateKeyPair(2048);
+      const rootCert = forge.pki.createCertificate();
+      rootCert.publicKey = rootKeys.publicKey;
+      rootCert.serialNumber = '01';
+      rootCert.validity.notBefore = new Date(Date.now() - 1000 * 60);
+      rootCert.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60);
+      const rootDN = [{ name: 'commonName', value: 'Root CA' }];
+      rootCert.setSubject(rootDN);
+      rootCert.setIssuer(rootDN);
+      rootCert.setExtensions([
+        { name: 'basicConstraints', cA: true },
+        { name: 'keyUsage', keyCertSign: true, digitalSignature: true },
+      ]);
+      rootCert.sign(rootKeys.privateKey);
+      // Leaf
+      const leafKeys = forge.pki.rsa.generateKeyPair(2048);
+      const leafCert = forge.pki.createCertificate();
+      leafCert.publicKey = leafKeys.publicKey;
+      leafCert.serialNumber = '03';
+      leafCert.validity.notBefore = new Date(Date.now() - 1000 * 60);
+      leafCert.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60);
+      const leafDN = [{ name: 'commonName', value: 'Leaf Cert' }];
+      leafCert.setSubject(leafDN);
+      leafCert.setIssuer(rootDN);
+      leafCert.setExtensions([{ name: 'keyUsage', digitalSignature: true }]);
+      leafCert.sign(rootKeys.privateKey);
+      // Untrusted root
+      const otherKeys = forge.pki.rsa.generateKeyPair(2048);
+      const otherCert = forge.pki.createCertificate();
+      otherCert.publicKey = otherKeys.publicKey;
+      otherCert.serialNumber = '02';
+      otherCert.validity.notBefore = new Date(Date.now() - 1000 * 60);
+      otherCert.validity.notAfter = new Date(Date.now() + 1000 * 60 * 60);
+      const otherDN = [{ name: 'commonName', value: 'Other Root' }];
+      otherCert.setSubject(otherDN);
+      otherCert.setIssuer(otherDN);
+      otherCert.setExtensions([
+        { name: 'basicConstraints', cA: true },
+        { name: 'keyUsage', keyCertSign: true, digitalSignature: true },
+      ]);
+      otherCert.sign(otherKeys.privateKey);
+      // Should throw not trusted error
+      expect(() =>
+        validateCertificateChain([leafCert, rootCert], { trustedRoots: [otherCert] }),
+      ).toThrow('Certificate chain validation failed');
     });
   });
 });

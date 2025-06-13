@@ -124,3 +124,58 @@ export function verifyRsaSignature({
     return false;
   }
 }
+
+/**
+ * Validate a certificate chain (leaf first, root last).
+ * @param certs Array of forge.pki.Certificate (leaf first, root last)
+ * @param options Optional: { trustedRoots?: forge.pki.Certificate[] | string[]; date?: Date }
+ * @returns true if valid, throws otherwise
+ */
+export function validateCertificateChain(
+  certs: forge.pki.Certificate[],
+  options?: { trustedRoots?: Array<forge.pki.Certificate | string>; date?: Date },
+): boolean {
+  if (!Array.isArray(certs) || certs.length < 2) {
+    throw new Error('Certificate chain must have at least leaf and root');
+  }
+  const date = options?.date || new Date();
+  // Check validity periods
+  for (const cert of certs) {
+    if (!cert.validity.notBefore || !cert.validity.notAfter) {
+      throw new Error('Certificate missing validity period');
+    }
+    if (date < cert.validity.notBefore || date > cert.validity.notAfter) {
+      throw new Error(
+        `Certificate expired or not yet valid: ${cert.subject.getField('CN')?.value}`,
+      );
+    }
+  }
+  // Use node-forge's CA store and verifyCertificateChain for robust validation
+  if (options?.trustedRoots && options.trustedRoots.length > 0) {
+    const caStore = forge.pki.createCaStore(
+      options.trustedRoots.map((t) => (typeof t === 'string' ? t : forge.pki.certificateToPem(t))),
+    );
+    try {
+      forge.pki.verifyCertificateChain(caStore, certs, {
+        validityCheckDate: date,
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message) {
+        throw err;
+      } else {
+        throw new Error('Certificate chain validation failed');
+      }
+    }
+    return true;
+  } else {
+    // No trusted roots: just check signatures up the chain
+    for (let i = 0; i < certs.length - 1; i++) {
+      const child = certs[i];
+      const parent = certs[i + 1];
+      if (!child.verify(parent)) {
+        throw new Error(`Certificate signature invalid at position ${i}`);
+      }
+    }
+    return true;
+  }
+}
