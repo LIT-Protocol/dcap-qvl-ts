@@ -3,9 +3,13 @@ node_modules/
 
 # Build output
 dist/
+build/
 
-# Environment variables
+# Environment files
 .env
+
+# Examples (optional, remove if you want to track example code)
+# examples/
 
 # Logs
 npm-debug.log*
@@ -15,8 +19,11 @@ yarn-error.log*
 # OS files
 .DS_Store
 
-# Coverage
+# Test coverage
 coverage/
+
+# TypeScript
+*.tsbuildinfo
 
 # IDE directories
 .idea/
