@@ -170,3 +170,85 @@ export function getASN1Field(seq: forge.asn1.Asn1, index: number): forge.asn1.As
   }
   return undefined;
 }
+
+/**
+ * Extract subject, issuer, validity period, extensions, and public key info from a forge.pki.Certificate.
+ */
+export function getCertificateInfo(cert: forge.pki.Certificate) {
+  return {
+    subject: cert.subject.attributes.map((attr) => ({
+      name: attr.name,
+      value: attr.value,
+      shortName: attr.shortName,
+    })),
+    issuer: cert.issuer.attributes.map((attr) => ({
+      name: attr.name,
+      value: attr.value,
+      shortName: attr.shortName,
+    })),
+    notBefore: cert.validity.notBefore,
+    notAfter: cert.validity.notAfter,
+    extensions: cert.extensions,
+    publicKey: cert.publicKey,
+    serialNumber: cert.serialNumber,
+    signatureAlgorithm: cert.siginfo && cert.siginfo.algorithmOid,
+    version: cert.version,
+  };
+}
+
+/**
+ * Validate certificate expiration (returns true if valid at the given date, or now if not provided).
+ */
+export function isCertificateValidNow(
+  cert: forge.pki.Certificate,
+  date: Date = new Date(),
+): boolean {
+  return cert.validity.notBefore <= date && date <= cert.validity.notAfter;
+}
+
+/**
+ * Validate basic constraints (returns true if CA or not, depending on requireCA).
+ */
+export function validateBasicConstraints(cert: forge.pki.Certificate, requireCA = false): boolean {
+  const ext = cert.extensions.find((e) => e.name === 'basicConstraints');
+  if (!ext) return !requireCA;
+  return requireCA ? !!ext.cA : true;
+}
+
+/**
+ * Validate key usage (returns true if all required usages are present).
+ * Usage names: 'digitalSignature', 'keyEncipherment', 'dataEncipherment', etc.
+ */
+export function validateKeyUsage(cert: forge.pki.Certificate, requiredUsages: string[]): boolean {
+  const ext = cert.extensions.find((e) => e.name === 'keyUsage');
+  if (!ext || !Array.isArray(ext.digitalSignature)) {
+    // node-forge represents usages as boolean properties
+    return requiredUsages.every((usage) => ext && ext[usage] === true);
+  }
+  // Defensive fallback
+  return false;
+}
+
+/**
+ * Convert a forge.pki.Certificate to PEM format.
+ */
+export function certificateToPem(cert: forge.pki.Certificate): string {
+  return forge.pki.certificateToPem(cert);
+}
+
+/**
+ * Convert a forge.pki.Certificate to DER (Uint8Array).
+ */
+export function certificateToDer(cert: forge.pki.Certificate): Uint8Array {
+  const asn1 = forge.pki.certificateToAsn1(cert);
+  const der = forge.asn1.toDer(asn1).getBytes();
+  return Uint8Array.from(Buffer.from(der, 'binary'));
+}
+
+/**
+ * Parse a DER-encoded certificate (Uint8Array) to forge.pki.Certificate.
+ */
+export function derToCertificate(der: Uint8Array): forge.pki.Certificate {
+  const derBytes = Buffer.from(der).toString('binary');
+  return forge.pki.certificateFromAsn1(forge.asn1.fromDer(derBytes));
+}

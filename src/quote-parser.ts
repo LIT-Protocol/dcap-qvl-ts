@@ -1,5 +1,5 @@
 import { Quote, Header, EnclaveReport, AuthData, AuthDataV3, TDReport10 } from './quote-types.js';
-import { readUint16LE, readUint32LE, readBytes, validateBuffer } from './binary-utils.js';
+import { readUint16LE, readUint32LE, readBytes, validateBuffer } from './binary-utils';
 
 const HEADER_BYTE_LEN = 48;
 const ENCLAVE_REPORT_BYTE_LEN = 384;
