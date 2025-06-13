@@ -1,3 +1,11 @@
+// CryptoUtils: Cryptographic utility functions for SGX quote verification and general use
+//
+// Example usage:
+// import { CryptoUtils } from './crypto-utils';
+// const pubkey = CryptoUtils.pemToRawP256PublicKey(pem);
+// const valid = CryptoUtils.verifyEcdsaSignature({ publicKey: pubkey, message, signature });
+// const hash = CryptoUtils.sha256(data);
+
 import forge from 'node-forge';
 import { p256 } from '@noble/curves/p256';
 
@@ -177,5 +185,33 @@ export function validateCertificateChain(
       }
     }
     return true;
+  }
+}
+
+export class CryptoUtils {
+  /**
+   * Compute SHA-256 hash of data (Uint8Array or string). Returns Uint8Array.
+   */
+  static sha256(data: Uint8Array | string): Uint8Array {
+    const md = forge.md.sha256.create();
+    if (typeof data === 'string') {
+      md.update(data, 'utf8');
+    } else {
+      md.update(Buffer.from(data).toString('binary'));
+    }
+    return new Uint8Array(Buffer.from(md.digest().getBytes(), 'binary'));
+  }
+
+  /**
+   * Compute SHA-384 hash of data (Uint8Array or string). Returns Uint8Array.
+   */
+  static sha384(data: Uint8Array | string): Uint8Array {
+    const md = forge.md.sha384.create();
+    if (typeof data === 'string') {
+      md.update(data, 'utf8');
+    } else {
+      md.update(Buffer.from(data).toString('binary'));
+    }
+    return new Uint8Array(Buffer.from(md.digest().getBytes(), 'binary'));
   }
 }
