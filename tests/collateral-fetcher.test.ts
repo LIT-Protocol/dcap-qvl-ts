@@ -1,4 +1,4 @@
-import { CollateralFetcher } from './collateral-fetcher';
+import { CollateralFetcher } from '../src/collateral-fetcher';
 
 describe('CollateralFetcher Integration (Real Endpoints)', () => {
   // WARNING: These tests make real network requests to Intel PCS endpoints.

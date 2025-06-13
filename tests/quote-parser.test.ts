@@ -1,5 +1,5 @@
-import { QuoteParser } from './quote-parser';
-import { Quote } from './quote-types';
+import { QuoteParser } from '../src/quote-parser';
+import { Quote } from '../src/quote-types';
 
 // Example valid SGX v3 quote (structurally valid, not cryptographically valid)
 const headerSize = 48;
