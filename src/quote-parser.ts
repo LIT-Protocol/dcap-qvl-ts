@@ -212,11 +212,85 @@ export class QuoteParser {
   }
 
   /**
-   * Stub for parsing SGX quote version 4
+   * Parse SGX quote version 4 (same structure as v3 for now)
    */
-  private static parseV4Quote(_quoteBytes: Uint8Array): Quote {
-    // TODO: Implement full parsing logic for v4
-    throw new Error('parseV4Quote not yet implemented');
+  private static parseV4Quote(quoteBytes: Uint8Array): Quote {
+    let offset = 0;
+    // Parse header
+    const header: Header = {
+      version: readUint16LE(quoteBytes, offset),
+      attestationKeyType: readUint16LE(quoteBytes, offset + 2),
+      teeType: readUint32LE(quoteBytes, offset + 4),
+      qeSvn: readUint16LE(quoteBytes, offset + 8),
+      pceSvn: readUint16LE(quoteBytes, offset + 10),
+      qeVendorId: readBytes(quoteBytes, offset + 12, 16),
+      userData: readBytes(quoteBytes, offset + 28, 20),
+    };
+    offset += HEADER_BYTE_LEN;
+
+    // Parse EnclaveReport
+    const enclaveReport: EnclaveReport = {
+      cpuSvn: readBytes(quoteBytes, offset, 16),
+      miscSelect: readUint32LE(quoteBytes, offset + 16),
+      reserved1: readBytes(quoteBytes, offset + 20, 28),
+      attributes: readBytes(quoteBytes, offset + 48, 16),
+      mrEnclave: readBytes(quoteBytes, offset + 64, 32),
+      reserved2: readBytes(quoteBytes, offset + 96, 32),
+      mrSigner: readBytes(quoteBytes, offset + 128, 32),
+      reserved3: readBytes(quoteBytes, offset + 160, 96),
+      isvProdId: readUint16LE(quoteBytes, offset + 256),
+      isvSvn: readUint16LE(quoteBytes, offset + 258),
+      reserved4: readBytes(quoteBytes, offset + 260, 60),
+      reportData: readBytes(quoteBytes, offset + 320, 64),
+    };
+    offset += ENCLAVE_REPORT_BYTE_LEN;
+
+    // Parse AuthData size
+    const authDataSize = readUint32LE(quoteBytes, offset);
+    offset += AUTH_DATA_SIZE_BYTE_LEN;
+    validateBuffer(quoteBytes, offset, authDataSize);
+    let authOffset = offset;
+
+    // Parse AuthDataV3 (same as v3)
+    const ecdsaSignature = readBytes(quoteBytes, authOffset, ECDSA_SIGNATURE_BYTE_LEN);
+    authOffset += ECDSA_SIGNATURE_BYTE_LEN;
+    const ecdsaAttestationKey = readBytes(quoteBytes, authOffset, ECDSA_PUBKEY_BYTE_LEN);
+    authOffset += ECDSA_PUBKEY_BYTE_LEN;
+    const qeReport = readBytes(quoteBytes, authOffset, QE_REPORT_BYTE_LEN);
+    authOffset += QE_REPORT_BYTE_LEN;
+    const qeReportSignature = readBytes(quoteBytes, authOffset, QE_REPORT_SIG_BYTE_LEN);
+    authOffset += QE_REPORT_SIG_BYTE_LEN;
+    // QE Auth Data (Data<u16>)
+    const qeAuthDataLen = readUint16LE(quoteBytes, authOffset);
+    authOffset += QE_AUTH_DATA_SIZE_BYTE_LEN;
+    const qeAuthData = readBytes(quoteBytes, authOffset, qeAuthDataLen);
+    authOffset += qeAuthDataLen;
+    // Certification Data
+    const certType = readUint16LE(quoteBytes, authOffset);
+    authOffset += QE_CERT_DATA_TYPE_BYTE_LEN;
+    const certDataLen = readUint32LE(quoteBytes, authOffset);
+    authOffset += QE_CERT_DATA_SIZE_BYTE_LEN;
+    const certData = readBytes(quoteBytes, authOffset, certDataLen);
+    authOffset += certDataLen;
+
+    const authDataV3: AuthDataV3 = {
+      ecdsaSignature,
+      ecdsaAttestationKey,
+      qeReport,
+      qeReportSignature,
+      qeAuthData: { data: qeAuthData },
+      certificationData: {
+        certType,
+        body: { data: certData },
+      },
+    };
+    const authData: AuthData = { version: 3, data: authDataV3 };
+
+    return {
+      header,
+      report: { type: 'SgxEnclave', report: enclaveReport },
+      authData,
+    };
   }
 
   /**
@@ -237,7 +311,7 @@ export class QuoteParser {
    * Extract the FMSPC from a parsed Quote (requires certificate parsing)
    * Not implemented: would require parsing the certificate chain in authData
    */
-  static extractFMSPC(_quote: Quote): Uint8Array {
+  static extractFMSPC(): Uint8Array {
     throw new Error('extractFMSPC not implemented: requires certificate parsing');
   }
 
@@ -245,7 +319,7 @@ export class QuoteParser {
    * Extract the TCB Info from a parsed Quote (requires certificate/collateral parsing)
    * Not implemented: would require parsing the collateral
    */
-  static extractTCBInfo(_quote: Quote): unknown {
+  static extractTCBInfo(): unknown {
     throw new Error('extractTCBInfo not implemented: requires collateral parsing');
   }
 
