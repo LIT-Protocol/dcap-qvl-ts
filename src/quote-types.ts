@@ -174,3 +174,33 @@ export interface QuoteVerificationError {
   code: QuoteVerificationErrorCode;
   message: string;
 }
+
+// TCB Info structures for SGX/TDX (matches Rust dcap-qvl)
+export interface TcbComponent {
+  svn: number;
+}
+
+export interface Tcb {
+  sgxComponents: TcbComponent[];
+  tdxComponents?: TcbComponent[];
+  pceSvn: number;
+}
+
+export interface TcbLevel {
+  tcb: Tcb;
+  tcbDate: string;
+  tcbStatus: string;
+  advisoryIDs?: string[];
+}
+
+export interface TcbInfo {
+  id: string;
+  version: number;
+  issueDate: string;
+  nextUpdate: string;
+  fmspc: string;
+  pceId: string;
+  tcbType: number;
+  tcbEvaluationDataNumber: number;
+  tcbLevels: TcbLevel[];
+}

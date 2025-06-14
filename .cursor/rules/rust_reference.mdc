@@ -1,0 +1,18 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+<rule>
+name: reference_rust_library
+description: Always reference the Rust library code when converting to JavaScript or writing tests.
+filters:
+  - type: file_extension
+    pattern: "\\.js$|\\.ts$|\\.jsx$|\\.tsx$"
+  - type: content
+    pattern: ".*"
+actions:
+  - type: prepend_instruction
+    message: |
+      When generating JavaScript code, functions, or tests, always refer to the Rust library code located in the `dcap-qvl-rust` directory (e.g., `dcap-qvl-rust/src/*.rs`) as the source of truth. Ensure the JavaScript implementation matches the functionality, structure, and intent of the Rust code. If unsure, analyze the Rust code before proceeding and explain how the JavaScript code aligns with it.
+</rule>

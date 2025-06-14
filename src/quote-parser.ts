@@ -3,7 +3,6 @@ import { readUint16LE, readUint32LE, readBytes, validateBuffer } from './binary-
 
 const HEADER_BYTE_LEN = 48;
 const ENCLAVE_REPORT_BYTE_LEN = 384;
-const TD_REPORT10_BYTE_LEN = 584;
 const AUTH_DATA_SIZE_BYTE_LEN = 4;
 const ECDSA_SIGNATURE_BYTE_LEN = 64;
 const ECDSA_PUBKEY_BYTE_LEN = 64;
@@ -72,6 +71,16 @@ export class QuoteParser {
     offset += ENCLAVE_REPORT_BYTE_LEN;
 
     // Parse AuthData size
+    console.log(
+      '[TDX DEBUG] Offset before AuthData length:',
+      offset,
+      'Buffer length:',
+      quoteBytes.length,
+    );
+    console.log(
+      '[TDX DEBUG] Bytes at AuthData length offset:',
+      quoteBytes.slice(offset - 4, offset + 8),
+    );
     const authDataSize = readUint32LE(quoteBytes, offset);
     offset += AUTH_DATA_SIZE_BYTE_LEN;
     validateBuffer(quoteBytes, offset, authDataSize);
@@ -135,37 +144,103 @@ export class QuoteParser {
       userData: readBytes(quoteBytes, offset + 28, 20),
     };
     offset += HEADER_BYTE_LEN;
+    console.log('[TDX DEBUG] Header version:', header.version);
+    console.log('[TDX DEBUG] Next 16 bytes after header:', quoteBytes.slice(offset, offset + 16));
 
-    // Parse TDReport10
-    const tdReport: TDReport10 = QuoteParser.parseTDReport10(quoteBytes, offset);
-    offset += TD_REPORT10_BYTE_LEN;
+    // If version is 5, parse 6-byte body field
+    if (header.version === 5) {
+      const bodyType = readUint16LE(quoteBytes, offset);
+      const bodySize = readUint32LE(quoteBytes, offset + 2);
+      console.log(
+        '[TDX DEBUG] Parsed bodyType:',
+        bodyType,
+        'bodySize:',
+        bodySize,
+        'at offset:',
+        offset,
+      );
+      offset += 6;
+    }
+    console.log('[TDX DEBUG] Offset after header/body:', offset);
 
-    // Parse AuthData size
+    // Detect TDReport10 vs TDReport15 by available length
+    let reportType: 'TD10' | 'TD15' = 'TD10';
+    let reportLen = 584;
+    if (quoteBytes.length >= offset + 648) {
+      reportType = 'TD15';
+      reportLen = 648;
+    }
+    console.log('[TDX DEBUG] Detected report type:', reportType, 'reportLen:', reportLen);
+
+    // Parse TDReport
+    let tdReport: TDReport10;
+    if (reportType === 'TD10') {
+      tdReport = QuoteParser.parseTDReport10(quoteBytes, offset);
+    } else {
+      tdReport = QuoteParser.parseTDReport10(quoteBytes, offset); // For now, parse base
+      // Optionally: parse extra TD15 fields if needed
+    }
+    offset += reportLen;
+    console.log('[TDX DEBUG] Offset after TDReport:', offset);
+
+    // At this offset, read the next 4 bytes as AuthData length
+    console.log(
+      '[TDX DEBUG] Offset before AuthData length:',
+      offset,
+      'Buffer length:',
+      quoteBytes.length,
+    );
+    console.log(
+      '[TDX DEBUG] Bytes at AuthData length offset:',
+      quoteBytes.slice(offset, offset + 8),
+    );
     const authDataSize = readUint32LE(quoteBytes, offset);
-    offset += AUTH_DATA_SIZE_BYTE_LEN;
+    offset += 4;
     validateBuffer(quoteBytes, offset, authDataSize);
-    let authOffset = offset;
-
-    // Parse AuthDataV3 (same as SGX)
-    const ecdsaSignature = readBytes(quoteBytes, authOffset, ECDSA_SIGNATURE_BYTE_LEN);
+    const authDataBytes = quoteBytes.slice(offset, offset + authDataSize);
+    let authOffset = 0;
+    // Parse AuthDataV3 (same as before, but from authDataBytes)
+    const ecdsaSignature = readBytes(authDataBytes, authOffset, ECDSA_SIGNATURE_BYTE_LEN);
     authOffset += ECDSA_SIGNATURE_BYTE_LEN;
-    const ecdsaAttestationKey = readBytes(quoteBytes, authOffset, ECDSA_PUBKEY_BYTE_LEN);
+    const ecdsaAttestationKey = readBytes(authDataBytes, authOffset, ECDSA_PUBKEY_BYTE_LEN);
     authOffset += ECDSA_PUBKEY_BYTE_LEN;
-    const qeReport = readBytes(quoteBytes, authOffset, QE_REPORT_BYTE_LEN);
+    const qeReport = readBytes(authDataBytes, authOffset, QE_REPORT_BYTE_LEN);
     authOffset += QE_REPORT_BYTE_LEN;
-    const qeReportSignature = readBytes(quoteBytes, authOffset, QE_REPORT_SIG_BYTE_LEN);
+    const qeReportSignature = readBytes(authDataBytes, authOffset, QE_REPORT_SIG_BYTE_LEN);
     authOffset += QE_REPORT_SIG_BYTE_LEN;
     // QE Auth Data (Data<u16>)
-    const qeAuthDataLen = readUint16LE(quoteBytes, authOffset);
+    console.log(
+      '[TDX DEBUG] Offset before qeAuthDataLen:',
+      authOffset,
+      'Buffer length:',
+      authDataBytes.length,
+    );
+    console.log(
+      '[TDX DEBUG] Bytes at qeAuthDataLen offset:',
+      authDataBytes.slice(authOffset, authOffset + 2),
+    );
+    const qeAuthDataLen = readUint16LE(authDataBytes, authOffset);
+    console.log('[TDX DEBUG] qeAuthDataLen:', qeAuthDataLen, 'at offset:', authOffset);
     authOffset += QE_AUTH_DATA_SIZE_BYTE_LEN;
-    const qeAuthData = readBytes(quoteBytes, authOffset, qeAuthDataLen);
+    const qeAuthData = readBytes(authDataBytes, authOffset, qeAuthDataLen);
     authOffset += qeAuthDataLen;
     // Certification Data
-    const certType = readUint16LE(quoteBytes, authOffset);
+    const certType = readUint16LE(authDataBytes, authOffset);
     authOffset += QE_CERT_DATA_TYPE_BYTE_LEN;
-    const certDataLen = readUint32LE(quoteBytes, authOffset);
+    console.log(
+      '[TDX DEBUG] Offset before certDataLen:',
+      authOffset,
+      'Buffer length:',
+      authDataBytes.length,
+    );
+    console.log(
+      '[TDX DEBUG] Bytes at certDataLen offset:',
+      authDataBytes.slice(authOffset, authOffset + 4),
+    );
+    const certDataLen = readUint32LE(authDataBytes, authOffset);
+    console.log('[TDX DEBUG] certDataLen:', certDataLen, 'at offset:', authOffset);
     authOffset += QE_CERT_DATA_SIZE_BYTE_LEN;
-    const certData = readBytes(quoteBytes, authOffset, certDataLen);
+    const certData = readBytes(authDataBytes, authOffset, certDataLen);
     authOffset += certDataLen;
 
     const authDataV3: AuthDataV3 = {
@@ -246,6 +321,16 @@ export class QuoteParser {
     offset += ENCLAVE_REPORT_BYTE_LEN;
 
     // Parse AuthData size
+    console.log(
+      '[TDX DEBUG] Offset before AuthData length:',
+      offset,
+      'Buffer length:',
+      quoteBytes.length,
+    );
+    console.log(
+      '[TDX DEBUG] Bytes at AuthData length offset:',
+      quoteBytes.slice(offset - 4, offset + 8),
+    );
     const authDataSize = readUint32LE(quoteBytes, offset);
     offset += AUTH_DATA_SIZE_BYTE_LEN;
     validateBuffer(quoteBytes, offset, authDataSize);

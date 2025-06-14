@@ -252,3 +252,80 @@ export function derToCertificate(der: Uint8Array): forge.pki.Certificate {
   const derBytes = Buffer.from(der).toString('binary');
   return forge.pki.certificateFromAsn1(forge.asn1.fromDer(derBytes));
 }
+
+/**
+ * Extract the Intel SGX extension (OID 1.2.840.113741.1.13.1) from a certificate as a DER buffer.
+ */
+export function getIntelExtension(cert: forge.pki.Certificate): Uint8Array | undefined {
+  const SGX_EXTENSION_OID = '1.2.840.113741.1.13.1';
+  const ext = cert.extensions.find(
+    (e) => e.id === SGX_EXTENSION_OID || e.oid === SGX_EXTENSION_OID,
+  );
+  if (!ext) return undefined;
+  // The value is a DER-encoded ASN.1 Octet String
+  if (ext.value && typeof ext.value === 'string') {
+    // node-forge may return a hex string
+    return Uint8Array.from(Buffer.from(ext.value, 'hex'));
+  } else if (ext.value && ext.value.bytes) {
+    return Uint8Array.from(Buffer.from(ext.value.bytes(), 'binary'));
+  }
+  return undefined;
+}
+
+/**
+ * Helper to find a child ASN.1 node by OID in a sequence.
+ */
+function findAsn1ByOid(seq: forge.asn1.Asn1, oid: string): forge.asn1.Asn1 | undefined {
+  if (!seq || !Array.isArray(seq.value)) return undefined;
+  for (const el of seq.value) {
+    if (
+      el.type === forge.asn1.Type.SEQUENCE &&
+      Array.isArray(el.value) &&
+      el.value.length >= 2 &&
+      el.value[0].type === forge.asn1.Type.OID &&
+      el.value[0].value === oid
+    ) {
+      return el.value[1];
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extract FMSPC (OID 1.2.840.113741.1.13.1.4) from the Intel SGX extension DER buffer.
+ */
+export function getFmspcFromIntelExtension(ext: Uint8Array): Uint8Array | undefined {
+  const FMSPC_OID = '1.2.840.113741.1.13.1.4';
+  const asn1 = parseASN1(ext);
+  const fmspcNode = findAsn1ByOid(asn1, FMSPC_OID);
+  if (fmspcNode && typeof fmspcNode.value === 'string') {
+    return Uint8Array.from(Buffer.from(fmspcNode.value, 'binary'));
+  }
+  return undefined;
+}
+
+/**
+ * Extract CPU SVN (OID 1.2.840.113741.1.13.1.2.18) from the Intel SGX extension DER buffer.
+ */
+export function getCpuSvnFromIntelExtension(ext: Uint8Array): Uint8Array | undefined {
+  const CPUSVN_OID = '1.2.840.113741.1.13.1.2.18';
+  const asn1 = parseASN1(ext);
+  const cpuSvnNode = findAsn1ByOid(asn1, CPUSVN_OID);
+  if (cpuSvnNode && typeof cpuSvnNode.value === 'string') {
+    return Uint8Array.from(Buffer.from(cpuSvnNode.value, 'binary'));
+  }
+  return undefined;
+}
+
+/**
+ * Extract PCE SVN (OID 1.2.840.113741.1.13.1.2.17) from the Intel SGX extension DER buffer.
+ */
+export function getPceSvnFromIntelExtension(ext: Uint8Array): Uint8Array | undefined {
+  const PCESVN_OID = '1.2.840.113741.1.13.1.2.17';
+  const asn1 = parseASN1(ext);
+  const pceSvnNode = findAsn1ByOid(asn1, PCESVN_OID);
+  if (pceSvnNode && typeof pceSvnNode.value === 'string') {
+    return Uint8Array.from(Buffer.from(pceSvnNode.value, 'binary'));
+  }
+  return undefined;
+}

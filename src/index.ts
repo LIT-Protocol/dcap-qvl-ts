@@ -6,3 +6,5 @@
 // TODO: Implement quote verification logic
 
 console.log('Hello TypeScript');
+
+export { QuoteVerifier } from './quote-verifier';

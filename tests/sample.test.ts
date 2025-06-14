@@ -17,9 +17,11 @@ import {
   derToCertificate,
   parseCertificate,
 } from '../src/binary-utils';
-import { QuoteParser } from '../src/quote-parser';
 import * as fs from 'fs';
 import * as path from 'path';
+import { QuoteVerifier } from '../src/quote-verifier';
+import { CollateralFetcher } from '../src/collateral-fetcher';
+import { QuoteCollateralV3 } from '../src/quote-types';
 
 test('adds 1 + 2 to equal 3', () => {
   expect(1 + 2).toBe(3);
@@ -134,4 +136,31 @@ test('validateBasicConstraints', () => {
 test('validateKeyUsage', () => {
   // Add your validation logic here
   expect(true).toBe(true);
+});
+
+describe('QuoteVerifier TDX integration', () => {
+  it('verifies a TDX quote and returns UpToDate status', async () => {
+    // Load TDX quote (raw binary)
+    const quoteBytes = fs.readFileSync(path.join(__dirname, '../dcap-qvl-rust/sample/tdx_quote'));
+    console.log('First 8 bytes:', quoteBytes.slice(0, 8)); // Debug: should start with 04 00 ...
+    // Load TDX collateral
+    const collateralJson = fs.readFileSync(
+      path.join(__dirname, '../dcap-qvl-rust/sample/tdx_quote_collateral.json'),
+      'utf8',
+    );
+    const collateralObj = JSON.parse(collateralJson);
+    // The tcb_info field is a JSON string, so we keep it as-is
+    const collateral: QuoteCollateralV3 = {
+      tcbInfoIssuerChain: collateralObj.tcb_info_issuer_chain,
+      tcbInfo: collateralObj.tcb_info,
+      tcbInfoSignature: Buffer.from(collateralObj.tcb_info_signature, 'hex'),
+      qeIdentityIssuerChain: collateralObj.qe_identity_issuer_chain,
+      qeIdentity: collateralObj.qe_identity,
+      qeIdentitySignature: Buffer.from(collateralObj.qe_identity_signature, 'hex'),
+    };
+    const verifier = new QuoteVerifier(new CollateralFetcher());
+    const result = await verifier.verify(quoteBytes, collateral);
+    expect(result.status).toBe('UpToDate');
+    expect(result.advisoryIds).toEqual([]);
+  });
 });
