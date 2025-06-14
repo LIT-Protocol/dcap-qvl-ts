@@ -1,7 +1,6 @@
 // Binary parsing utilities for Uint8Array buffers
 // Handles little-endian and big-endian formats
 
-// @ts-expect-error asn1.js has no types and uses dynamic 'this' context
 import asn1 from 'asn1.js';
 
 /** Validates that the buffer has enough bytes from the given offset. */

@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
-use scale::Decode;
+use der::Decode;
+use scale::Decode as ScaleDecode;
 
 use {
     crate::constants::*, crate::tcb_info::TcbInfo, alloc::borrow::ToOwned, alloc::string::String,
@@ -80,8 +81,7 @@ pub fn verify(
     now: u64,
 ) -> Result<VerifiedReport> {
     // Parse data
-    let mut quote = raw_quote;
-    let quote = Quote::decode(&mut quote).context("Failed to decode quote")?;
+    let quote = Quote::parse(raw_quote).context("Failed to parse quote")?;
     let signed_quote_len = quote.signed_length();
 
     let tcb_info = serde_json::from_str::<TcbInfo>(&quote_collateral.tcb_info)
@@ -114,6 +114,33 @@ pub fn verify(
     let intermediate_certs = &leaf_certs[1..];
     verify_certificate_chain(&leaf_cert, intermediate_certs, now_in_milli)?;
     let asn1_signature = encode_as_der(&quote_collateral.tcb_info_signature)?;
+    // Debug: print TCB Info bytes and public key (uncompressed, hex)
+    println!(
+        "[RUST DEBUG] tcbInfoBytes (hex): {}",
+        hex::encode(quote_collateral.tcb_info.as_bytes())
+    );
+    let cert = x509_cert::Certificate::from_der(&leaf_certs[0]).expect("Failed to parse DER cert");
+    let pubkey_bytes_opt = cert
+        .tbs_certificate
+        .subject_public_key_info
+        .subject_public_key
+        .as_bytes();
+    // If the first byte is not 0x04, prepend it (uncompressed format)
+    let pubkey_hex = if let Some(pubkey_bytes) = pubkey_bytes_opt {
+        if !pubkey_bytes.is_empty() && pubkey_bytes[0] == 0x04 {
+            hex::encode(pubkey_bytes)
+        } else if !pubkey_bytes.is_empty() {
+            let mut v = vec![0x04u8];
+            v.extend_from_slice(pubkey_bytes);
+            hex::encode(v)
+        } else {
+            "empty public key".to_string()
+        }
+    } else {
+        "public key has unused bits".to_string()
+    };
+
+    println!("[RUST DEBUG] tcbLeafCert.publicKey (hex): {}", pubkey_hex);
     if leaf_cert
         .verify_signature(
             webpki::ring::ECDSA_P256_SHA256,
@@ -169,8 +196,9 @@ pub fn verify(
     }
 
     // Extract QE report from quote
-    let mut qe_report = auth_data.qe_report.as_slice();
-    let qe_report = EnclaveReport::decode(&mut qe_report).context("Failed to decode QE report")?;
+    let mut qe_report_bytes = auth_data.qe_report.as_slice();
+    let qe_report =
+        EnclaveReport::decode(&mut qe_report_bytes).context("Failed to decode QE report")?;
 
     // Check QE hash
     let mut qe_hash_data = [0u8; QE_HASH_DATA_BYTE_LEN];

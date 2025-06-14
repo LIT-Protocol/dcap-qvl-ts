@@ -98,6 +98,14 @@ export class QuoteVerifier {
     const tcbLeafCert = tcbCerts[0];
     const tcbInfoBytes = Buffer.from(collateral.tcbInfo, 'utf8');
     const tcbSig = collateral.tcbInfoSignature;
+    // Debug output for signature verification
+    console.log(
+      '[TDX DEBUG] tcbLeafCert.publicKey (hex):',
+      Buffer.from(tcbLeafCert.publicKey).toString('hex'),
+    );
+    console.log('[TDX DEBUG] tcbInfoBytes (hex):', tcbInfoBytes.toString('hex'));
+    console.log('[TDX DEBUG] tcbInfoBytes (utf8):', tcbInfoBytes.toString('utf8').slice(0, 200));
+    console.log('[TDX DEBUG] tcbSig (hex):', Buffer.from(tcbSig).toString('hex'));
     const validTcbSig = verifyEcdsaSignature({
       publicKey: tcbLeafCert.publicKey,
       message: tcbInfoBytes,
@@ -105,6 +113,7 @@ export class QuoteVerifier {
       isRaw: true,
     });
     if (!validTcbSig) {
+      console.log('[TDX DEBUG] Early return: invalid tcbInfo signature');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -136,6 +145,7 @@ export class QuoteVerifier {
       qeAuthData = quote.authData.data.qeReportData.qeAuthData.data;
       ecdsaSignature = quote.authData.data.ecdsaSignature;
     } else {
+      console.log('[TDX DEBUG] Early return: invalid authData version');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -152,6 +162,7 @@ export class QuoteVerifier {
       isRaw: true,
     });
     if (!validQeReportSig) {
+      console.log('[TDX DEBUG] Early return: invalid qeReport signature');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -166,6 +177,7 @@ export class QuoteVerifier {
     const reportData = qeReport.slice(320, 384); // 64 bytes
     const reportDataHash = reportData.slice(0, 32);
     if (!qeHashBytes.every((b, i) => b === reportDataHash[i])) {
+      console.log('[TDX DEBUG] Early return: qeHashBytes mismatch');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -182,6 +194,7 @@ export class QuoteVerifier {
       isRaw: true,
     });
     if (!validQuoteSig) {
+      console.log('[TDX DEBUG] Early return: invalid quote signature');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -208,6 +221,7 @@ export class QuoteVerifier {
       quotePceSvn = new Uint8Array([0, 0]);
     }
     if (!quoteCpuSvn || !quotePceSvn) {
+      console.log('[TDX DEBUG] Early return: quoteCpuSvn or quotePceSvn is undefined');
       return {
         status: 'Unknown',
         advisoryIds: [],

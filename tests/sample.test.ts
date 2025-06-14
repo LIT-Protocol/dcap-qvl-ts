@@ -144,6 +144,21 @@ describe('QuoteVerifier TDX integration', () => {
       qeIdentity: collateralObj.qe_identity,
       qeIdentitySignature: Buffer.from(collateralObj.qe_identity_signature, 'hex'),
     };
+    // Debug: print tcbInfoSignature length and hex
+    console.log('[TEST DEBUG] tcbInfoSignature length:', collateral.tcbInfoSignature.length);
+    console.log(
+      '[TEST DEBUG] tcbInfoSignature hex:',
+      Buffer.from(collateral.tcbInfoSignature).toString('hex'),
+    );
+    // Print tcbInfoBytes and tcbLeafCert.publicKey (hex) for comparison
+    const tcbInfoBytes = Buffer.from(collateral.tcbInfo, 'utf8');
+    console.log('[TEST DEBUG] tcbInfoBytes (hex):', tcbInfoBytes.toString('hex'));
+    const tcbCerts = parseCertificateChain(collateral.tcbInfoIssuerChain);
+    const tcbLeafCert = tcbCerts[0];
+    console.log(
+      '[TEST DEBUG] tcbLeafCert.publicKey (hex):',
+      Buffer.from(tcbLeafCert.publicKey).toString('hex'),
+    );
     const verifier = new QuoteVerifier(new CollateralFetcher());
     const result = await verifier.verify(quoteBytes, collateral);
     expect(result.status).toBe('UpToDate');

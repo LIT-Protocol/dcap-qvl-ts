@@ -1,5 +1,6 @@
 import { Quote, Header, EnclaveReport, AuthData, AuthDataV3, TDReport10 } from './quote-types.js';
 import { readUint16LE, readUint32LE, readBytes, validateBuffer } from './binary-utils';
+import { X509Certificate } from '@peculiar/x509';
 
 const HEADER_BYTE_LEN = 48;
 const ENCLAVE_REPORT_BYTE_LEN = 384;
@@ -346,10 +347,48 @@ export class QuoteParser {
 
   /**
    * Extract the FMSPC from a parsed Quote (requires certificate parsing)
-   * Not implemented: would require parsing the certificate chain in authData
    */
-  static extractFMSPC(): Uint8Array {
-    throw new Error('extractFMSPC not implemented: requires certificate parsing');
+  static extractFMSPC(quote: Quote): Uint8Array {
+    // Get the certificate chain from the quote's authData
+    let certChainPem: string | undefined;
+    if (quote.authData.version === 3) {
+      certChainPem = Buffer.from(quote.authData.data.certificationData.body.data).toString('utf8');
+    } else if (quote.authData.version === 4) {
+      certChainPem = Buffer.from(
+        quote.authData.data.qeReportData.certificationData.body.data,
+      ).toString('utf8');
+    } else {
+      throw new Error('Unsupported quote version for FMSPC extraction');
+    }
+    // Parse the first certificate in the chain
+    const pattern = /-+BEGIN CERTIFICATE-+[\s\S]*?-+END CERTIFICATE-+/g;
+    const matches = (certChainPem || '').match(pattern) || [];
+    if (matches.length === 0) {
+      throw new Error('No certificates found in quote');
+    }
+    const firstCertPem = matches[0]!;
+    // Use @peculiar/x509 to parse the certificate
+    const cert = new X509Certificate(firstCertPem);
+    const FMSPC_OID = '1.2.840.113741.1.13.1.4';
+    // Debug: print all extension OIDs in the first certificate
+    console.log(
+      '[FMSPC DEBUG] All extension OIDs in first cert:',
+      cert.extensions.map((e) => e.type),
+    );
+    let fmspcValue: Uint8Array | undefined;
+    for (const ext of cert.extensions) {
+      if (ext.type === FMSPC_OID) {
+        // ext.value is an ArrayBuffer
+        const value = new Uint8Array(ext.value);
+        fmspcValue = value.slice(0, 6);
+        console.log('[FMSPC DEBUG] FMSPC extension value:', Buffer.from(value).toString('hex'));
+        break;
+      }
+    }
+    if (!fmspcValue || fmspcValue.length !== 6) {
+      throw new Error('FMSPC not found or invalid length');
+    }
+    return fmspcValue;
   }
 
   /**

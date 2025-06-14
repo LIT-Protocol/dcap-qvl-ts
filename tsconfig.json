@@ -6,7 +6,8 @@
     "outDir": "dist",
     "strict": true,
     "esModuleInterop": true,
-    "declaration": true
+    "declaration": true,
+    "typeRoots": ["./types", "./node_modules/@types"]
   },
   "include": ["src/**/*", "examples/**/*", "tests/**/*"],
   "exclude": ["node_modules"]
