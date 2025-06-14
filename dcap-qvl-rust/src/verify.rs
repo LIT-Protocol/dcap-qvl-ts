@@ -114,6 +114,10 @@ pub fn verify(
     let intermediate_certs = &leaf_certs[1..];
     verify_certificate_chain(&leaf_cert, intermediate_certs, now_in_milli)?;
     let asn1_signature = encode_as_der(&quote_collateral.tcb_info_signature)?;
+    println!(
+        "[RUST DEBUG] tcbInfoSignature DER (hex): {}",
+        hex::encode(&asn1_signature)
+    );
     // Debug: print TCB Info bytes and public key (uncompressed, hex)
     println!(
         "[RUST DEBUG] tcbInfoBytes (hex): {}",

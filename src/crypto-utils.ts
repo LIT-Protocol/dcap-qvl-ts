@@ -8,6 +8,7 @@
 
 import forge from 'node-forge';
 import { p256 } from '@noble/curves/p256';
+import { sha256 } from '@noble/hashes/sha256';
 
 /**
  * Convert a PEM-encoded P-256 public key to raw uncompressed key bytes (Uint8Array, 65 bytes).
@@ -55,7 +56,7 @@ export function verifyEcdsaSignature({
   publicKey: string | Uint8Array;
   message: Uint8Array;
   signature: Uint8Array;
-  isRaw?: boolean; // Only r||s supported for now
+  isRaw?: boolean;
 }): boolean {
   let pubkeyBytes: Uint8Array;
   if (typeof publicKey === 'string') {
@@ -63,9 +64,28 @@ export function verifyEcdsaSignature({
   } else {
     pubkeyBytes = publicKey;
   }
-  if (!isRaw) throw new Error('Only r||s signatures are supported');
-  // p256.verify expects r||s (64 bytes), message, and public key (Uint8Array)
-  return p256.verify(signature, message, pubkeyBytes);
+
+  let sigToVerify = signature;
+  if (isRaw) {
+    if (signature.length !== 64) {
+      // A raw P-256 signature must be 64 bytes (32-byte r + 32-byte s)
+      return false;
+    }
+    // noble/curves' p256.verify expects a DER-encoded signature.
+    // We must convert the raw r||s signature to DER format first.
+    sigToVerify = rawEcdsaSigToDer(signature);
+  }
+
+  // p256.verify expects a DER-encoded signature, a message hash, and a public key
+  try {
+    // The message must be hashed with SHA256 before verification.
+    const msgHash = sha256(message);
+    return p256.verify(sigToVerify, msgHash, pubkeyBytes);
+  } catch {
+    // If verification fails due to an invalid signature format or other errors,
+    // catch the exception and return false.
+    return false;
+  }
 }
 
 /**
