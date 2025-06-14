@@ -12,6 +12,7 @@ const QE_AUTH_DATA_SIZE_BYTE_LEN = 2;
 const QE_CERT_DATA_TYPE_BYTE_LEN = 2;
 const QE_CERT_DATA_SIZE_BYTE_LEN = 4;
 const TEE_TYPE_TDX = 0x81;
+const TD_REPORT10_BYTE_LEN = 584;
 
 export class QuoteParser {
   /**
@@ -132,130 +133,81 @@ export class QuoteParser {
    * Parse TDX quote version 4 (TDReport10)
    */
   private static parseTDXQuoteV4(quoteBytes: Uint8Array): Quote {
-    let offset = 0;
     // Parse header
     const header: Header = {
-      version: readUint16LE(quoteBytes, offset),
-      attestationKeyType: readUint16LE(quoteBytes, offset + 2),
-      teeType: readUint32LE(quoteBytes, offset + 4),
-      qeSvn: readUint16LE(quoteBytes, offset + 8),
-      pceSvn: readUint16LE(quoteBytes, offset + 10),
-      qeVendorId: readBytes(quoteBytes, offset + 12, 16),
-      userData: readBytes(quoteBytes, offset + 28, 20),
+      version: readUint16LE(quoteBytes, 0),
+      attestationKeyType: readUint16LE(quoteBytes, 2),
+      teeType: readUint32LE(quoteBytes, 4),
+      qeSvn: readUint16LE(quoteBytes, 8),
+      pceSvn: readUint16LE(quoteBytes, 10),
+      qeVendorId: readBytes(quoteBytes, 12, 16),
+      userData: readBytes(quoteBytes, 28, 20),
     };
-    offset += HEADER_BYTE_LEN;
-    console.log('[TDX DEBUG] Header version:', header.version);
-    console.log('[TDX DEBUG] Next 16 bytes after header:', quoteBytes.slice(offset, offset + 16));
-
-    // If version is 5, parse 6-byte body field
-    if (header.version === 5) {
-      const bodyType = readUint16LE(quoteBytes, offset);
-      const bodySize = readUint32LE(quoteBytes, offset + 2);
-      console.log(
-        '[TDX DEBUG] Parsed bodyType:',
-        bodyType,
-        'bodySize:',
-        bodySize,
-        'at offset:',
-        offset,
-      );
-      offset += 6;
-    }
-    console.log('[TDX DEBUG] Offset after header/body:', offset);
-
-    // Detect TDReport10 vs TDReport15 by available length
-    let reportType: 'TD10' | 'TD15' = 'TD10';
-    let reportLen = 584;
-    if (quoteBytes.length >= offset + 648) {
-      reportType = 'TD15';
-      reportLen = 648;
-    }
-    console.log('[TDX DEBUG] Detected report type:', reportType, 'reportLen:', reportLen);
-
-    // Parse TDReport
-    let tdReport: TDReport10;
-    if (reportType === 'TD10') {
-      tdReport = QuoteParser.parseTDReport10(quoteBytes, offset);
-    } else {
-      tdReport = QuoteParser.parseTDReport10(quoteBytes, offset); // For now, parse base
-      // Optionally: parse extra TD15 fields if needed
-    }
-    offset += reportLen;
-    console.log('[TDX DEBUG] Offset after TDReport:', offset);
-
-    // At this offset, read the next 4 bytes as AuthData length
-    console.log(
-      '[TDX DEBUG] Offset before AuthData length:',
-      offset,
-      'Buffer length:',
-      quoteBytes.length,
-    );
-    console.log(
-      '[TDX DEBUG] Bytes at AuthData length offset:',
-      quoteBytes.slice(offset, offset + 8),
-    );
-    const authDataSize = readUint32LE(quoteBytes, offset);
-    offset += 4;
-    validateBuffer(quoteBytes, offset, authDataSize);
-    const authDataBytes = quoteBytes.slice(offset, offset + authDataSize);
+    // TDReport10 always follows header for TDX v4
+    const tdReportOffset = HEADER_BYTE_LEN;
+    const tdReport: TDReport10 = QuoteParser.parseTDReport10(quoteBytes, tdReportOffset);
+    // AuthData length is immediately after TDReport10
+    const authDataLenOffset = HEADER_BYTE_LEN + TD_REPORT10_BYTE_LEN;
+    const authDataSize = readUint32LE(quoteBytes, authDataLenOffset);
+    const authDataOffset = authDataLenOffset + 4;
+    validateBuffer(quoteBytes, authDataOffset, authDataSize);
+    const authDataBytes = quoteBytes.slice(authDataOffset, authDataOffset + authDataSize);
     let authOffset = 0;
-    // Parse AuthDataV3 (same as before, but from authDataBytes)
+    // Parse AuthDataV4 (nested structure)
     const ecdsaSignature = readBytes(authDataBytes, authOffset, ECDSA_SIGNATURE_BYTE_LEN);
     authOffset += ECDSA_SIGNATURE_BYTE_LEN;
     const ecdsaAttestationKey = readBytes(authDataBytes, authOffset, ECDSA_PUBKEY_BYTE_LEN);
     authOffset += ECDSA_PUBKEY_BYTE_LEN;
-    const qeReport = readBytes(authDataBytes, authOffset, QE_REPORT_BYTE_LEN);
-    authOffset += QE_REPORT_BYTE_LEN;
-    const qeReportSignature = readBytes(authDataBytes, authOffset, QE_REPORT_SIG_BYTE_LEN);
-    authOffset += QE_REPORT_SIG_BYTE_LEN;
-    // QE Auth Data (Data<u16>)
-    console.log(
-      '[TDX DEBUG] Offset before qeAuthDataLen:',
-      authOffset,
-      'Buffer length:',
-      authDataBytes.length,
-    );
-    console.log(
-      '[TDX DEBUG] Bytes at qeAuthDataLen offset:',
-      authDataBytes.slice(authOffset, authOffset + 2),
-    );
-    const qeAuthDataLen = readUint16LE(authDataBytes, authOffset);
-    console.log('[TDX DEBUG] qeAuthDataLen:', qeAuthDataLen, 'at offset:', authOffset);
-    authOffset += QE_AUTH_DATA_SIZE_BYTE_LEN;
-    const qeAuthData = readBytes(authDataBytes, authOffset, qeAuthDataLen);
-    authOffset += qeAuthDataLen;
-    // Certification Data
+    // CertificationData (outer)
     const certType = readUint16LE(authDataBytes, authOffset);
     authOffset += QE_CERT_DATA_TYPE_BYTE_LEN;
-    console.log(
-      '[TDX DEBUG] Offset before certDataLen:',
-      authOffset,
-      'Buffer length:',
-      authDataBytes.length,
-    );
-    console.log(
-      '[TDX DEBUG] Bytes at certDataLen offset:',
-      authDataBytes.slice(authOffset, authOffset + 4),
-    );
-    const certDataLen = readUint32LE(authDataBytes, authOffset);
-    console.log('[TDX DEBUG] certDataLen:', certDataLen, 'at offset:', authOffset);
+    const certBodyLen = readUint32LE(authDataBytes, authOffset);
     authOffset += QE_CERT_DATA_SIZE_BYTE_LEN;
-    const certData = readBytes(authDataBytes, authOffset, certDataLen);
-    authOffset += certDataLen;
-
-    const authDataV3: AuthDataV3 = {
-      ecdsaSignature,
-      ecdsaAttestationKey,
+    const certBody = readBytes(authDataBytes, authOffset, certBodyLen);
+    authOffset += certBodyLen;
+    // Parse QEReportCertificationData from certBody
+    let certBodyOffset = 0;
+    const qeReport = readBytes(certBody, certBodyOffset, QE_REPORT_BYTE_LEN);
+    certBodyOffset += QE_REPORT_BYTE_LEN;
+    const qeReportSignature = readBytes(certBody, certBodyOffset, QE_REPORT_SIG_BYTE_LEN);
+    certBodyOffset += QE_REPORT_SIG_BYTE_LEN;
+    // QE Auth Data (Data<u16>)
+    const qeAuthDataLen = readUint16LE(certBody, certBodyOffset);
+    certBodyOffset += QE_AUTH_DATA_SIZE_BYTE_LEN;
+    const qeAuthData = readBytes(certBody, certBodyOffset, qeAuthDataLen);
+    certBodyOffset += qeAuthDataLen;
+    // Certification Data (nested)
+    const certType2 = readUint16LE(certBody, certBodyOffset);
+    certBodyOffset += QE_CERT_DATA_TYPE_BYTE_LEN;
+    const certDataLen2 = readUint32LE(certBody, certBodyOffset);
+    certBodyOffset += QE_CERT_DATA_SIZE_BYTE_LEN;
+    const certData2 = readBytes(certBody, certBodyOffset, certDataLen2);
+    certBodyOffset += certDataLen2;
+    // Compose nested CertificationData
+    const nestedCertificationData = {
+      certType: certType2,
+      body: { data: certData2 },
+    };
+    // Compose QEReportCertificationData
+    const qeReportData = {
       qeReport,
       qeReportSignature,
       qeAuthData: { data: qeAuthData },
-      certificationData: {
-        certType,
-        body: { data: certData },
-      },
+      certificationData: nestedCertificationData,
     };
-    const authData: AuthData = { version: 3, data: authDataV3 };
-
+    // Compose outer CertificationData
+    const certificationData = {
+      certType,
+      body: { data: certBody },
+    };
+    // Compose AuthDataV4
+    const authDataV4 = {
+      ecdsaSignature,
+      ecdsaAttestationKey,
+      certificationData,
+      qeReportData,
+    };
+    const authData: AuthData = { version: 4, data: authDataV4 };
     return {
       header,
       report: { type: 'TD10', report: tdReport },

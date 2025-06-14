@@ -1,6 +1,9 @@
 // Binary parsing utilities for Uint8Array buffers
 // Handles little-endian and big-endian formats
 
+// @ts-expect-error asn1.js has no types and uses dynamic 'this' context
+import asn1 from 'asn1.js';
+
 /** Validates that the buffer has enough bytes from the given offset. */
 export function validateBuffer(buffer: Uint8Array, offset: number, length: number): void {
   if (offset < 0 || offset + length > buffer.length) {
@@ -88,244 +91,93 @@ export function readBytes(buffer: Uint8Array, offset: number, length: number): U
   return buffer.slice(offset, offset + length);
 }
 
-// ASN.1/DER and certificate parsing utilities using node-forge
-import forge from 'node-forge';
-
-/**
- * Parse a PEM or DER encoded certificate and return a forge.pki.Certificate object.
- * Accepts Uint8Array (DER) or string (PEM).
- */
-export function parseCertificate(cert: Uint8Array | string): forge.pki.Certificate {
-  try {
-    if (typeof cert === 'string') {
-      // PEM format
-      return forge.pki.certificateFromPem(cert);
-    } else {
-      // DER format (Uint8Array)
-      const derBytes =
-        typeof Buffer !== 'undefined'
-          ? Buffer.from(cert).toString('binary')
-          : String.fromCharCode(...cert);
-      return forge.pki.certificateFromAsn1(forge.asn1.fromDer(derBytes));
-    }
-  } catch (err) {
-    throw new Error(`Failed to parse certificate: ${err}`);
-  }
+export interface MinimalEcdsaCert {
+  publicKey: Uint8Array;
+  // TODO: Add subject, issuer, extensions if needed
 }
 
-/**
- * Parse a PEM chain (string) and return an array of forge.pki.Certificate objects.
- */
-export function parseCertificateChain(pemChain: string): forge.pki.Certificate[] {
+function pemToDer(pem: string): Uint8Array {
+  const b64 = pem
+    .replace(/-----BEGIN CERTIFICATE-----/, '')
+    .replace(/-----END CERTIFICATE-----/, '')
+    .replace(/\s+/g, '');
+  return Buffer.from(b64, 'base64');
+}
+
+const Certificate = asn1.define('Certificate', function () {
+  // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+  this.seq().obj(
+    // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+    this.key('tbsCertificate')
+      .seq()
+      .obj(
+        // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+        this.key('version').explicit(0).int().optional(),
+        // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+        this.key('serialNumber').int(),
+        // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+        this.key('signature').seq().obj(
+          // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+          this.key('algorithm').objid(),
+          // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+          this.key('parameters').optional(),
+        ),
+        // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+        this.key('issuer').any(),
+        // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+        this.key('validity').any(),
+        // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+        this.key('subject').any(),
+        // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+        this.key('subjectPublicKeyInfo')
+          .seq()
+          .obj(
+            // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+            this.key('algorithm').seq().obj(
+              // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+              this.key('algorithm').objid(),
+              // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+              this.key('parameters').optional(),
+            ),
+            // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+            this.key('subjectPublicKey').bitstr(),
+          ),
+      ),
+    // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+    this.key('signatureAlgorithm').seq().obj(
+      // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+      this.key('algorithm').objid(),
+      // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+      this.key('parameters').optional(),
+    ),
+    // @ts-expect-error asn1.js uses dynamic 'this' context and is not typed
+    this.key('signatureValue').bitstr(),
+  );
+});
+
+export function parseCertificate(cert: Uint8Array | string): MinimalEcdsaCert {
+  let der: Uint8Array;
+  if (typeof cert === 'string') {
+    if (cert.includes('-----BEGIN CERTIFICATE-----')) {
+      der = pemToDer(cert);
+    } else {
+      der = Buffer.from(cert, 'binary');
+    }
+  } else {
+    der = cert;
+  }
+  // Parse the certificate ASN.1 structure
+  const decoded = Certificate.decode(der, 'der');
+  const spki = decoded.tbsCertificate.subjectPublicKeyInfo;
+  const pubkeyBitStr: Buffer = spki.subjectPublicKey.data;
+  if (pubkeyBitStr.length !== 65 || pubkeyBitStr[0] !== 0x04) {
+    throw new Error('Invalid ECDSA public key');
+  }
+  return { publicKey: new Uint8Array(pubkeyBitStr) };
+}
+
+export function parseCertificateChain(pemChain: string): MinimalEcdsaCert[] {
   const pattern = /-+BEGIN CERTIFICATE-+[\s\S]*?-+END CERTIFICATE-+/g;
   const matches = pemChain.match(pattern) || [];
-  return matches.map((pem) => forge.pki.certificateFromPem(pem));
-}
-
-/**
- * Extract a specific extension value from a certificate by OID.
- * Returns the extension value as a Buffer, or undefined if not found.
- */
-export function getExtensionByOID(
-  cert: forge.pki.Certificate,
-  oid: string,
-): Uint8Array | undefined {
-  const ext = cert.extensions.find((e) => e.id === oid || e.oid === oid);
-  if (!ext) return undefined;
-  // The value is a DER-encoded ASN.1 Octet String
-  if (typeof ext.value === 'string') {
-    // node-forge returns hex string for some extensions
-    return Uint8Array.from(Buffer.from(ext.value, 'hex'));
-  } else if (ext.value instanceof Uint8Array) {
-    return ext.value;
-  } else if (ext.value && ext.value.bytes) {
-    // ASN.1 object
-    return Uint8Array.from(Buffer.from(ext.value.bytes(), 'binary'));
-  }
-  return undefined;
-}
-
-/**
- * Parse a DER-encoded ASN.1 structure from a Uint8Array.
- * Returns a forge.asn1 object.
- */
-export function parseASN1(der: Uint8Array): forge.asn1.Asn1 {
-  try {
-    const derBytes =
-      typeof Buffer !== 'undefined'
-        ? Buffer.from(der).toString('binary')
-        : String.fromCharCode(...der);
-    return forge.asn1.fromDer(derBytes);
-  } catch (err) {
-    throw new Error(`Failed to parse ASN.1 DER: ${err}`);
-  }
-}
-
-/**
- * Extract a field from an ASN.1 sequence by index.
- */
-export function getASN1Field(seq: forge.asn1.Asn1, index: number): forge.asn1.Asn1 | undefined {
-  if (seq && seq.value && Array.isArray(seq.value) && seq.value.length > index) {
-    return seq.value[index];
-  }
-  return undefined;
-}
-
-/**
- * Extract subject, issuer, validity period, extensions, and public key info from a forge.pki.Certificate.
- */
-export function getCertificateInfo(cert: forge.pki.Certificate) {
-  return {
-    subject: cert.subject.attributes.map((attr) => ({
-      name: attr.name,
-      value: attr.value,
-      shortName: attr.shortName,
-    })),
-    issuer: cert.issuer.attributes.map((attr) => ({
-      name: attr.name,
-      value: attr.value,
-      shortName: attr.shortName,
-    })),
-    notBefore: cert.validity.notBefore,
-    notAfter: cert.validity.notAfter,
-    extensions: cert.extensions,
-    publicKey: cert.publicKey,
-    serialNumber: cert.serialNumber,
-    signatureAlgorithm: cert.siginfo && cert.siginfo.algorithmOid,
-    version: cert.version,
-  };
-}
-
-/**
- * Validate certificate expiration (returns true if valid at the given date, or now if not provided).
- */
-export function isCertificateValidNow(
-  cert: forge.pki.Certificate,
-  date: Date = new Date(),
-): boolean {
-  return cert.validity.notBefore <= date && date <= cert.validity.notAfter;
-}
-
-/**
- * Validate basic constraints (returns true if CA or not, depending on requireCA).
- */
-export function validateBasicConstraints(cert: forge.pki.Certificate, requireCA = false): boolean {
-  const ext = cert.extensions.find((e) => e.name === 'basicConstraints');
-  if (!ext) return !requireCA;
-  return requireCA ? !!ext.cA : true;
-}
-
-/**
- * Validate key usage (returns true if all required usages are present).
- * Usage names: 'digitalSignature', 'keyEncipherment', 'dataEncipherment', etc.
- */
-export function validateKeyUsage(cert: forge.pki.Certificate, requiredUsages: string[]): boolean {
-  const ext = cert.extensions.find((e) => e.name === 'keyUsage');
-  if (!ext || !Array.isArray(ext.digitalSignature)) {
-    // node-forge represents usages as boolean properties
-    return requiredUsages.every((usage) => ext && ext[usage] === true);
-  }
-  // Defensive fallback
-  return false;
-}
-
-/**
- * Convert a forge.pki.Certificate to PEM format.
- */
-export function certificateToPem(cert: forge.pki.Certificate): string {
-  return forge.pki.certificateToPem(cert);
-}
-
-/**
- * Convert a forge.pki.Certificate to DER (Uint8Array).
- */
-export function certificateToDer(cert: forge.pki.Certificate): Uint8Array {
-  const asn1 = forge.pki.certificateToAsn1(cert);
-  const der = forge.asn1.toDer(asn1).getBytes();
-  return Uint8Array.from(Buffer.from(der, 'binary'));
-}
-
-/**
- * Parse a DER-encoded certificate (Uint8Array) to forge.pki.Certificate.
- */
-export function derToCertificate(der: Uint8Array): forge.pki.Certificate {
-  const derBytes = Buffer.from(der).toString('binary');
-  return forge.pki.certificateFromAsn1(forge.asn1.fromDer(derBytes));
-}
-
-/**
- * Extract the Intel SGX extension (OID 1.2.840.113741.1.13.1) from a certificate as a DER buffer.
- */
-export function getIntelExtension(cert: forge.pki.Certificate): Uint8Array | undefined {
-  const SGX_EXTENSION_OID = '1.2.840.113741.1.13.1';
-  const ext = cert.extensions.find(
-    (e) => e.id === SGX_EXTENSION_OID || e.oid === SGX_EXTENSION_OID,
-  );
-  if (!ext) return undefined;
-  // The value is a DER-encoded ASN.1 Octet String
-  if (ext.value && typeof ext.value === 'string') {
-    // node-forge may return a hex string
-    return Uint8Array.from(Buffer.from(ext.value, 'hex'));
-  } else if (ext.value && ext.value.bytes) {
-    return Uint8Array.from(Buffer.from(ext.value.bytes(), 'binary'));
-  }
-  return undefined;
-}
-
-/**
- * Helper to find a child ASN.1 node by OID in a sequence.
- */
-function findAsn1ByOid(seq: forge.asn1.Asn1, oid: string): forge.asn1.Asn1 | undefined {
-  if (!seq || !Array.isArray(seq.value)) return undefined;
-  for (const el of seq.value) {
-    if (
-      el.type === forge.asn1.Type.SEQUENCE &&
-      Array.isArray(el.value) &&
-      el.value.length >= 2 &&
-      el.value[0].type === forge.asn1.Type.OID &&
-      el.value[0].value === oid
-    ) {
-      return el.value[1];
-    }
-  }
-  return undefined;
-}
-
-/**
- * Extract FMSPC (OID 1.2.840.113741.1.13.1.4) from the Intel SGX extension DER buffer.
- */
-export function getFmspcFromIntelExtension(ext: Uint8Array): Uint8Array | undefined {
-  const FMSPC_OID = '1.2.840.113741.1.13.1.4';
-  const asn1 = parseASN1(ext);
-  const fmspcNode = findAsn1ByOid(asn1, FMSPC_OID);
-  if (fmspcNode && typeof fmspcNode.value === 'string') {
-    return Uint8Array.from(Buffer.from(fmspcNode.value, 'binary'));
-  }
-  return undefined;
-}
-
-/**
- * Extract CPU SVN (OID 1.2.840.113741.1.13.1.2.18) from the Intel SGX extension DER buffer.
- */
-export function getCpuSvnFromIntelExtension(ext: Uint8Array): Uint8Array | undefined {
-  const CPUSVN_OID = '1.2.840.113741.1.13.1.2.18';
-  const asn1 = parseASN1(ext);
-  const cpuSvnNode = findAsn1ByOid(asn1, CPUSVN_OID);
-  if (cpuSvnNode && typeof cpuSvnNode.value === 'string') {
-    return Uint8Array.from(Buffer.from(cpuSvnNode.value, 'binary'));
-  }
-  return undefined;
-}
-
-/**
- * Extract PCE SVN (OID 1.2.840.113741.1.13.1.2.17) from the Intel SGX extension DER buffer.
- */
-export function getPceSvnFromIntelExtension(ext: Uint8Array): Uint8Array | undefined {
-  const PCESVN_OID = '1.2.840.113741.1.13.1.2.17';
-  const asn1 = parseASN1(ext);
-  const pceSvnNode = findAsn1ByOid(asn1, PCESVN_OID);
-  if (pceSvnNode && typeof pceSvnNode.value === 'string') {
-    return Uint8Array.from(Buffer.from(pceSvnNode.value, 'binary'));
-  }
-  return undefined;
+  return matches.map((pem) => parseCertificate(pem));
 }

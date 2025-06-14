@@ -58,7 +58,49 @@ validV4Quote[1] = 0x00;
 
 // Example valid TDX v4 quote (version = 4, teeType = 0x81)
 const TEE_TYPE_TDX = 0x81;
+// Build a minimal, structurally valid AuthData for TDX v4
+const ecdsaSignature = new Array(64).fill(0);
+const ecdsaAttestationKey = new Array(64).fill(0);
+const certType = [0x00, 0x00];
+// certBody (nested):
+const qeReport = new Array(384).fill(0);
+const qeReportSignature = new Array(64).fill(0);
+const qeAuthDataLen = [0x00, 0x00]; // 0
+const certType2 = [0x00, 0x00];
+const certDataLen2 = [0x00, 0x00, 0x00, 0x00]; // 0
+const certData2: number[] = [];
+// certBody = qeReport + qeReportSignature + qeAuthDataLen + certType2 + certDataLen2 + certData2
+const certBody = [
+  ...qeReport,
+  ...qeReportSignature,
+  ...qeAuthDataLen,
+  ...certType2,
+  ...certDataLen2,
+  ...certData2,
+];
+const certBodyLen = [
+  certBody.length & 0xff,
+  (certBody.length >> 8) & 0xff,
+  (certBody.length >> 16) & 0xff,
+  (certBody.length >> 24) & 0xff,
+];
+// AuthData = ecdsaSignature + ecdsaAttestationKey + certType + certBodyLen + certBody
+const tdxAuthData = [
+  ...ecdsaSignature,
+  ...ecdsaAttestationKey,
+  ...certType,
+  ...certBodyLen,
+  ...certBody,
+];
+const tdxAuthDataSize = tdxAuthData.length;
+const tdxAuthDataSizeBytes = [
+  tdxAuthDataSize & 0xff,
+  (tdxAuthDataSize >> 8) & 0xff,
+  (tdxAuthDataSize >> 16) & 0xff,
+  (tdxAuthDataSize >> 24) & 0xff,
+];
 const validTDXv4Quote = new Uint8Array([
+  // Header (48 bytes)
   0x04,
   0x00, // version = 4 (u16 LE)
   0x00,
@@ -67,34 +109,13 @@ const validTDXv4Quote = new Uint8Array([
   0x00,
   0x00,
   0x00, // teeType = 0x81 (u32 LE)
-  // ... rest of header (48 bytes total)
   ...new Array(headerSize - 8).fill(0),
   // TDReport10 (584 bytes)
   ...new Array(tdReport10Size).fill(0),
   // AuthData size (4 bytes, little endian)
-  ...authDataSizeBytes,
-  // AuthData (584 bytes)
-  // ECDSA signature (64)
-  ...new Array(64).fill(0),
-  // ECDSA attestation key (64)
-  ...new Array(64).fill(0),
-  // QE report (384)
-  ...new Array(384).fill(0),
-  // QE report signature (64)
-  ...new Array(64).fill(0),
-  // QE auth data length (2, set to 0)
-  0x00,
-  0x00,
-  // QE auth data (0)
-  // Certification data type (2)
-  0x00,
-  0x00,
-  // Certification data length (4, set to 0)
-  0x00,
-  0x00,
-  0x00,
-  0x00,
-  // Certification data (0)
+  ...tdxAuthDataSizeBytes,
+  // AuthData (structurally valid)
+  ...tdxAuthData,
 ]);
 
 // Example invalid quote (too short)

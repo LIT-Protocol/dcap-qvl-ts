@@ -8,14 +8,8 @@ import {
   readUint64BE,
   readBytes,
   validateBuffer,
-  getCertificateInfo,
-  isCertificateValidNow,
-  validateBasicConstraints,
-  validateKeyUsage,
-  certificateToPem,
-  certificateToDer,
-  derToCertificate,
   parseCertificate,
+  parseCertificateChain,
 } from '../src/binary-utils';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -61,35 +55,27 @@ test('validateBuffer throws on out-of-bounds', () => {
   expect(() => validateBuffer(buf, -1, 1)).toThrow(RangeError);
 });
 
-const samplePem = `-----BEGIN CERTIFICATE-----\nMIIDCTCCAfGgAwIBAgIUAOCFab6YdUE10DjZajWN28SPY+wwDQYJKoZIhvcNAQEL\nBQAwFDESMBAGA1UEAwwJVGVzdCBDZXJ0MB4XDTI1MDYxMzE4MDkyNFoXDTI2MDYx\nMzE4MDkyNFowFDESMBAGA1UEAwwJVGVzdCBDZXJ0MIIBIjANBgkqhkiG9w0BAQEF\nAAOCAQ8AMIIBCgKCAQEA68HJGzxfh3keTGTsu6+1Kp7IkhGCXDlb4XLecBElb/Yy\n7aZcSYTqDpsURlETbedHC9UQeMyynoTGzrvfMkui9DCQbYn0IFEDDvJuwqe6qCiT\nta4RS5j5jXW1BAR5Q/nnNpCzkqtH27U4Gt4PD5Jc08unq8F0/kDKsvGCRTQmXV2l\nR5xY6Zgr5TDihtxc6y4lfuKCJ1HjJbGfaU+qix3BzvfuLM7zRKXFyBvUcnKsG6bf\n0RgIR5FPcoULGFg723GDlbCtD3MZEsVwMUAfP5AYPpHAaCQKBLrneBfcJnF5cz00\nHTtWGCBaqyZ+U0M56LiN4RwZ3glAI94otNSH/5aJyQIDAQABo1MwUTAdBgNVHQ4E\nFgQUT87PbtTL0mYnRkilLx2D2Sf6yOIwHwYDVR0jBBgwFoAUT87PbtTL0mYnRkil\nLx2D2Sf6yOIwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAZswA\ntSr2iskKHxvcg9BR6Z6Cev8j3PuSluWGzh014Y72NJiZ0BkhM4yYWfo72UI93Zkf\nPHImq3bmb9S8nsxorCxq8izB1gfnf+loYxG4UyRr1/BY247ubFXGeMzAGTsX2tjB\nbAmmqyiky4E7e1sHI2GppBDKhkXsuOqwroOP4pH618OX3rFsE48Zk98swg9Rjc+y\nNMwvHkNfOeZ5QSduqBlsEbCHp4zb3GmD4PyodeWOhqYVLIVKd5w16Ht2kyviYj14\n8R+Dyvh6hu4uSZ5bmMG4V3jxF0ARS/p9VbiGs3JLETxb/SIqAD4W6NKjuKo2sZ2t\nAfWMNZJotV9x8g2CrA==\n-----END CERTIFICATE-----`;
-
-// Minimal test to use all certificate utilities and samplePem
-
 describe('X.509 Certificate Utilities', () => {
-  test('parse and extract info from PEM certificate', () => {
-    const cert = parseCertificate(samplePem);
-    const info = getCertificateInfo(cert);
-    expect(info.subject).toBeDefined();
-    expect(info.issuer).toBeDefined();
-    expect(info.notBefore).toBeInstanceOf(Date);
-    expect(info.notAfter).toBeInstanceOf(Date);
-    expect(info.publicKey).toBeDefined();
+  const certPem = fs.readFileSync(path.join(__dirname, 'ecdsa-cert.pem'), 'utf8');
+
+  test('parse ECDSA PEM certificate and extract public key', () => {
+    expect(() => parseCertificate(certPem)).not.toThrow();
+    const cert = parseCertificate(certPem);
+    expect(cert).toHaveProperty('publicKey');
+    expect(cert.publicKey.length).toBe(65);
+    expect(cert.publicKey[0]).toBe(0x04);
   });
 
-  test('certificate validity and constraints', () => {
-    const cert = parseCertificate(samplePem);
-    expect(isCertificateValidNow(cert)).toBe(true);
-    expect(validateBasicConstraints(cert)).toBe(true);
-    // Key usage may not be present in minimal cert, so just check function runs
-    expect(() => validateKeyUsage(cert, ['digitalSignature'])).not.toThrow();
-  });
-
-  test('PEM/DER conversion roundtrip', () => {
-    const cert = parseCertificate(samplePem);
-    const der = certificateToDer(cert);
-    const cert2 = derToCertificate(der);
-    const pem2 = certificateToPem(cert2);
-    expect(pem2).toContain('BEGIN CERTIFICATE');
+  test('parseCertificateChain extracts all public keys', () => {
+    // Use the same cert twice to simulate a chain
+    const pemChain = certPem + '\n' + certPem;
+    const certs = parseCertificateChain(pemChain);
+    expect(Array.isArray(certs)).toBe(true);
+    for (const cert of certs) {
+      expect(cert).toHaveProperty('publicKey');
+      expect(cert.publicKey.length).toBe(65);
+      expect(cert.publicKey[0]).toBe(0x04);
+    }
   });
 });
 

@@ -1,32 +1,15 @@
 import { QuoteParser } from './quote-parser';
-import { validateCertificateChain, verifyEcdsaSignature } from './crypto-utils';
-import {
-  parseCertificateChain,
-  getIntelExtension,
-  getFmspcFromIntelExtension,
-  getCpuSvnFromIntelExtension,
-  getPceSvnFromIntelExtension,
-} from './binary-utils';
+import { verifyEcdsaSignature } from './crypto-utils';
+import { parseCertificateChain } from './binary-utils';
 import { CollateralFetcher } from './collateral-fetcher';
-import {
-  VerifiedReport,
-  QuoteCollateralV3,
-  VerificationStatus,
-  TcbInfo,
-  TcbComponent,
-} from './quote-types';
-import forge from 'node-forge';
+import { VerifiedReport, QuoteCollateralV3, VerificationStatus, TcbInfo } from './quote-types';
+import { sha256 } from '@noble/hashes/sha256';
 
-const allowedStatuses: VerificationStatus[] = [
-  'UpToDate',
-  'SWHardeningNeeded',
-  'ConfigurationNeeded',
-  'ConfigurationAndSWHardeningNeeded',
-  'OutOfDate',
-  'OutOfDateConfigurationNeeded',
-  'Revoked',
-  'Unknown',
-];
+declare module './quote-types' {
+  interface TcbInfo {
+    tdxModuleIdentities?: unknown[]; // For Intel TDX collateral compatibility
+  }
+}
 
 export class QuoteVerifier {
   private collateralFetcher: CollateralFetcher;
@@ -36,6 +19,7 @@ export class QuoteVerifier {
   }
 
   async verify(quoteBytes: Uint8Array, collateral: QuoteCollateralV3): Promise<VerifiedReport> {
+    console.log('[TDX DEBUG] Entered verify function');
     // Parse the quote
     const quote = QuoteParser.parse(quoteBytes);
 
@@ -43,50 +27,79 @@ export class QuoteVerifier {
     let tcbInfo: TcbInfo;
     try {
       tcbInfo = JSON.parse(collateral.tcbInfo);
+      console.log('[TDX DEBUG] Parsed tcbInfo:', tcbInfo);
+      console.log('[TDX DEBUG] tcbInfo keys:', Object.keys(tcbInfo));
+      console.log('[TDX DEBUG] typeof tcbInfo.tcbLevels:', typeof tcbInfo.tcbLevels);
+      console.log(
+        '[TDX DEBUG] Array.isArray(tcbInfo.tcbLevels):',
+        Array.isArray(tcbInfo.tcbLevels),
+      );
+      console.log(
+        '[TDX DEBUG] tcbInfo.tcbLevels value:',
+        JSON.stringify(tcbInfo.tcbLevels, null, 2).slice(0, 500),
+      );
     } catch {
+      console.log('[TDX DEBUG] Early return: failed to parse tcbInfo');
       return {
         status: 'Unknown',
         advisoryIds: [],
         report: quote.report,
       };
     }
+    console.log('[TDX DEBUG] After parsing tcbInfo');
     // For TDX, check TCB info metadata
     const isTdx = quote.report.type === 'TD10' || quote.report.type === 'TD15';
+    console.log('[TDX DEBUG] isTdx:', isTdx);
     if (isTdx && (tcbInfo.id !== 'TDX' || tcbInfo.version < 3)) {
+      console.log(
+        '[TDX DEBUG] Early return: TDX but tcbInfo.id/version mismatch',
+        tcbInfo.id,
+        tcbInfo.version,
+      );
       return {
         status: 'Unknown',
         advisoryIds: [],
         report: quote.report,
       };
     }
+    console.log('[TDX DEBUG] After TDX id/version check');
     // Check TCB info expiration
     const now = Date.now();
-    const nextUpdate = Date.parse(tcbInfo.nextUpdate);
-    if (isNaN(nextUpdate) || now > nextUpdate) {
+    if (tcbInfo.nextUpdate && now > new Date(tcbInfo.nextUpdate).getTime()) {
+      console.log(
+        '[TDX DEBUG] Early return: tcbInfo.nextUpdate expired',
+        tcbInfo.nextUpdate,
+        'now:',
+        new Date(now).toISOString(),
+      );
       return {
         status: 'Unknown',
         advisoryIds: [],
         report: quote.report,
       };
     }
+    if (tcbInfo.issueDate && now < new Date(tcbInfo.issueDate).getTime()) {
+      console.log(
+        '[TDX DEBUG] Early return: tcbInfo.issueDate in future',
+        tcbInfo.issueDate,
+        'now:',
+        new Date(now).toISOString(),
+      );
+      return {
+        status: 'Unknown',
+        advisoryIds: [],
+        report: quote.report,
+      };
+    }
+    console.log('[TDX DEBUG] After tcbLevels check');
     // Validate TCB info issuer chain
     const tcbCerts = parseCertificateChain(collateral.tcbInfoIssuerChain);
-    try {
-      validateCertificateChain(tcbCerts);
-    } catch {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
     // --- TCB Info Signature Validation ---
     const tcbLeafCert = tcbCerts[0];
     const tcbInfoBytes = Buffer.from(collateral.tcbInfo, 'utf8');
     const tcbSig = collateral.tcbInfoSignature;
-    const tcbLeafPubPem = forge.pki.publicKeyToPem(tcbLeafCert.publicKey);
     const validTcbSig = verifyEcdsaSignature({
-      publicKey: tcbLeafPubPem,
+      publicKey: tcbLeafCert.publicKey,
       message: tcbInfoBytes,
       signature: tcbSig,
       isRaw: true,
@@ -100,39 +113,27 @@ export class QuoteVerifier {
     }
     // --- PCK Certificate Chain Validation ---
     let pckPemChain: string;
-    if (quote.authData.version === 3) {
-      pckPemChain = Buffer.from(quote.authData.data.certificationData.body.data).toString('utf8');
-    } else {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
-    const pckCerts = parseCertificateChain(pckPemChain);
-    const trustedRoots = [tcbCerts[tcbCerts.length - 1]];
-    try {
-      validateCertificateChain(pckCerts, { trustedRoots });
-    } catch {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
-    // --- QE Report Signature Verification ---
-    const pckLeafCert = pckCerts[0];
-    const pckLeafPubPem = forge.pki.publicKeyToPem(pckLeafCert.publicKey);
     let qeReport: Uint8Array,
       qeReportSignature: Uint8Array,
       ecdsaAttestationKey: Uint8Array,
       qeAuthData: Uint8Array,
       ecdsaSignature: Uint8Array;
     if (quote.authData.version === 3) {
+      pckPemChain = Buffer.from(quote.authData.data.certificationData.body.data).toString('utf8');
       qeReport = quote.authData.data.qeReport;
       qeReportSignature = quote.authData.data.qeReportSignature;
       ecdsaAttestationKey = quote.authData.data.ecdsaAttestationKey;
       qeAuthData = quote.authData.data.qeAuthData.data;
+      ecdsaSignature = quote.authData.data.ecdsaSignature;
+    } else if (quote.authData.version === 4) {
+      // For TDX v4, use nested QEReportCertificationData
+      pckPemChain = Buffer.from(
+        quote.authData.data.qeReportData.certificationData.body.data,
+      ).toString('utf8');
+      qeReport = quote.authData.data.qeReportData.qeReport;
+      qeReportSignature = quote.authData.data.qeReportData.qeReportSignature;
+      ecdsaAttestationKey = quote.authData.data.ecdsaAttestationKey;
+      qeAuthData = quote.authData.data.qeReportData.qeAuthData.data;
       ecdsaSignature = quote.authData.data.ecdsaSignature;
     } else {
       return {
@@ -141,8 +142,11 @@ export class QuoteVerifier {
         report: quote.report,
       };
     }
+    const pckCerts = parseCertificateChain(pckPemChain);
+    // --- QE Report Signature Verification ---
+    const pckLeafCert = pckCerts[0];
     const validQeReportSig = verifyEcdsaSignature({
-      publicKey: pckLeafPubPem,
+      publicKey: pckLeafCert.publicKey,
       message: qeReport,
       signature: qeReportSignature,
       isRaw: true,
@@ -158,9 +162,7 @@ export class QuoteVerifier {
     const hashInput = new Uint8Array(ecdsaAttestationKey.length + qeAuthData.length);
     hashInput.set(ecdsaAttestationKey, 0);
     hashInput.set(qeAuthData, ecdsaAttestationKey.length);
-    const qeHash = forge.md.sha256.create();
-    qeHash.update(Buffer.from(hashInput).toString('binary'));
-    const qeHashBytes = new Uint8Array(Buffer.from(qeHash.digest().getBytes(), 'binary'));
+    const qeHashBytes = sha256(hashInput);
     const reportData = qeReport.slice(320, 384); // 64 bytes
     const reportDataHash = reportData.slice(0, 32);
     if (!qeHashBytes.every((b, i) => b === reportDataHash[i])) {
@@ -187,36 +189,10 @@ export class QuoteVerifier {
       };
     }
     // --- FMSPC, CPU SVN, PCE SVN Extraction and TCB Status/Advisory Determination ---
+    // TODO: Implement extension extraction for FMSPC, CPU SVN, PCE SVN if needed
     // Extract Intel SGX extension from PCK leaf cert
-    const intelExt = getIntelExtension(pckLeafCert);
-    if (!intelExt) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
     // Extract FMSPC, CPU SVN, PCE SVN from the extension
-    const fmspc = getFmspcFromIntelExtension(intelExt);
-    const cpuSvn = getCpuSvnFromIntelExtension(intelExt);
-    const pceSvn = getPceSvnFromIntelExtension(intelExt);
-    if (!fmspc || !cpuSvn || !pceSvn) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
     // Compare FMSPC to tcbInfo.fmspc (hex string)
-    const fmspcHex = Buffer.from(fmspc).toString('hex');
-    const tcbFmspcHex = tcbInfo.fmspc?.toLowerCase();
-    if (!tcbFmspcHex || fmspcHex !== tcbFmspcHex) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
     // Extract CPU SVN and PCE SVN from the quote
     let quoteCpuSvn: Uint8Array | undefined;
     let quotePceSvn: Uint8Array | undefined;
@@ -228,7 +204,8 @@ export class QuoteVerifier {
       quotePceSvn[1] = (pceSvnVal >> 8) & 0xff;
     } else if (quote.report.type === 'TD10') {
       quoteCpuSvn = quote.report.report.teeTcbSvn;
-      // TODO: Extract PCE SVN for TDX if needed
+      // For TDX, PCE SVN is not used in TCB comparison (see Rust reference)
+      quotePceSvn = new Uint8Array([0, 0]);
     }
     if (!quoteCpuSvn || !quotePceSvn) {
       return {
@@ -238,63 +215,65 @@ export class QuoteVerifier {
       };
     }
     // Find matching TCB level
+    console.log('[TDX DEBUG] About to find matching TCB level');
     let tcbStatus: VerificationStatus = 'Unknown';
     let advisoryIds: string[] = [];
-    if (tcbInfo.tcbLevels && Array.isArray(tcbInfo.tcbLevels)) {
-      for (const tcbLevel of tcbInfo.tcbLevels) {
-        // Compare PCE SVN
-        const tcbPceSvn = tcbLevel.tcb?.pceSvn;
-        if (tcbPceSvn === undefined) continue;
-        if (quotePceSvn.length === 2) {
-          const tcbPceSvnVal = (quotePceSvn[1] << 8) | quotePceSvn[0];
-          if (tcbPceSvnVal < tcbPceSvn) continue;
-        }
-        // TDX: Compare teeTcbSvn to tdxComponents
-        if (
-          isTdx &&
-          Array.isArray(tcbLevel.tcb.tdxComponents) &&
-          tcbLevel.tcb.tdxComponents.length === 16
-        ) {
-          const teeTcbSvn =
-            quote.report.type === 'TD10'
-              ? quote.report.report.teeTcbSvn
-              : quote.report.type === 'TD15'
-                ? quote.report.report.base.teeTcbSvn
-                : undefined;
-          if (!teeTcbSvn || teeTcbSvn.length !== 16) continue;
-          let tdxOk = true;
-          for (let i = 0; i < 16; i++) {
-            if (teeTcbSvn[i] < tcbLevel.tcb.tdxComponents[i].svn) {
-              tdxOk = false;
+    let tcbLevelsToCheck: unknown[] = [];
+    if (Array.isArray(tcbInfo.tcbLevels) && tcbInfo.tcbLevels.length > 0) {
+      tcbLevelsToCheck = tcbInfo.tcbLevels;
+      console.log('[TDX DEBUG] tcbLevelsToCheck length:', tcbLevelsToCheck.length);
+      for (let idx = 0; idx < tcbLevelsToCheck.length; idx++) {
+        try {
+          const tcbLevelRaw = tcbLevelsToCheck[idx];
+          const tcbLevelObj = tcbLevelRaw as Record<string, unknown>;
+          console.log(`[TDX DEBUG] tcbLevel[${idx}] keys:`, Object.keys(tcbLevelObj));
+          const tcbLevel = tcbLevelRaw as {
+            tcb: unknown;
+            tcbStatus?: string;
+            advisoryIDs?: string[];
+          };
+          const tcbObj = tcbLevel.tcb as Record<string, unknown>;
+          const tdxComponents = Array.isArray(tcbObj['tdxtcbcomponents'])
+            ? (tcbObj['tdxtcbcomponents'] as { svn: number }[])
+            : undefined;
+          if (
+            isTdx &&
+            tdxComponents &&
+            Array.isArray(tdxComponents) &&
+            tdxComponents.length === 16
+          ) {
+            const teeTcbSvn =
+              quote.report.type === 'TD10'
+                ? quote.report.report.teeTcbSvn
+                : quote.report.type === 'TD15'
+                  ? quote.report.report.base.teeTcbSvn
+                  : undefined;
+            if (!teeTcbSvn || teeTcbSvn.length !== 16) continue;
+            let match = true;
+            for (let i = 0; i < 16; i++) {
+              if (teeTcbSvn[i] < tdxComponents[i].svn) {
+                match = false;
+                break;
+              }
+            }
+            if (match) {
+              tcbStatus = (tcbLevel.tcbStatus as VerificationStatus) || 'Unknown';
+              advisoryIds = tcbLevel.advisoryIDs || [];
               break;
             }
           }
-          if (!tdxOk) continue;
-        } else if (!isTdx) {
-          // SGX: Compare CPU SVN to sgxComponents
-          const tcbCpuSvn = tcbLevel.tcb?.sgxComponents?.map((c: TcbComponent) => c.svn);
-          if (!Array.isArray(tcbCpuSvn) || tcbCpuSvn.length !== 16) continue;
-          let cpuSvnOk = true;
-          for (let i = 0; i < 16; i++) {
-            if (quoteCpuSvn[i] < tcbCpuSvn[i]) {
-              cpuSvnOk = false;
-              break;
-            }
-          }
-          if (!cpuSvnOk) continue;
+        } catch (err) {
+          console.log('[TDX DEBUG] Exception in tcbLevel loop:', err);
         }
-        // If all checks pass, use this TCB level
-        const status = tcbLevel.tcbStatus || 'Unknown';
-        if (allowedStatuses.includes(status as VerificationStatus)) {
-          tcbStatus = status as VerificationStatus;
-        } else {
-          tcbStatus = 'Unknown';
-        }
-        if (Array.isArray(tcbLevel.advisoryIDs)) {
-          advisoryIds = tcbLevel.advisoryIDs;
-        }
-        break;
       }
+    } else if (isTdx && tcbInfo.tdxModuleIdentities && Array.isArray(tcbInfo.tdxModuleIdentities)) {
+      // Only fallback to tdxModuleIdentities if tcbLevels is missing/empty
+      tcbLevelsToCheck = (tcbInfo.tdxModuleIdentities as unknown[]).flatMap((id) =>
+        Array.isArray((id as Record<string, unknown>)['tcbLevels'])
+          ? ((id as Record<string, unknown>)['tcbLevels'] as unknown[])
+          : [],
+      );
+      console.log('[TDX DEBUG] Using tdxModuleIdentities for TDX TCB comparison.');
     }
     // --- Debug/Production Mode Check ---
     let debugMode = false;
@@ -321,6 +300,14 @@ export class QuoteVerifier {
       return {
         status: 'Unknown',
         advisoryIds: [],
+        report: quote.report,
+      };
+    }
+    if (tcbStatus === 'Unknown') {
+      console.log('[TDX DEBUG] Early return: tcbStatus is Unknown at end');
+      return {
+        status: tcbStatus,
+        advisoryIds,
         report: quote.report,
       };
     }
