@@ -19,7 +19,7 @@ This library implements quote verification logic for DCAP (Data Center Attestati
 ## Installation
 
 ```bash
-npm install dcap-js
+npm install @lit-protocol/dcap-qvl-ts
 ```
 
 ## Usage Examples
