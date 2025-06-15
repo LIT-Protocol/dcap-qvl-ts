@@ -8,15 +8,15 @@ dirname "${BASH_SOURCE[0]}" | grep -q '^\.' && cd "$(dirname "$0")"
 PKG_NAME=$(node -p "require('./package.json').name")
 EXPECTED_NAME="@lit-protocol/dcap-qvl-ts"
 if [ "$PKG_NAME" != "$EXPECTED_NAME" ]; then
-  echo "\033[0;31mERROR: package.json name is '$PKG_NAME', expected '$EXPECTED_NAME'.\033[0m"
+  echo "ERROR: package.json name is '$PKG_NAME', expected '$EXPECTED_NAME'."
   echo "Please update your package.json before publishing."
   exit 1
 fi
 
-echo "\033[0;32mBuilding package...\033[0m"
+echo "Building package..."
 npm run build
 
-echo "\033[0;32mPublishing to NPM as $EXPECTED_NAME...\033[0m"
+echo "Publishing to NPM as $EXPECTED_NAME..."
 npm publish --access public
 
-echo "\033[0;32mPublish complete!\033[0m" 
+echo "Publish complete!" 
