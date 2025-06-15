@@ -204,3 +204,34 @@ export interface TcbInfo {
   tcbEvaluationDataNumber: number;
   tcbLevels: TcbLevel[];
 }
+
+/**
+ * Options for quote verification and collateral fetching (public API)
+ * Matches the Rust/TypeScript API design and CollateralFetchOptions.
+ */
+export interface VerificationOptions {
+  /**
+   * URL of the PCCS server (default: 'https://localhost:8081/sgx/certification/v4')
+   */
+  pccsUrl?: string;
+  /**
+   * Use Intel PCS instead of PCCS (default: false)
+   */
+  useIntelPCS?: boolean;
+  /**
+   * Request timeout in milliseconds (default: 30000)
+   */
+  timeout?: number;
+  /**
+   * Number of retry attempts for collateral fetching (default: 3)
+   */
+  retries?: number;
+  /**
+   * Enable in-memory caching of collateral results (default: true)
+   */
+  cacheResults?: boolean;
+  /**
+   * Set to true for TDX quote/collateral support (default: false)
+   */
+  isTdx?: boolean;
+}
