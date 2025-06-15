@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "commonjs",
+    "module": "ESNext",
     "moduleResolution": "node",
     "outDir": "dist",
     "strict": true,
@@ -11,4 +11,4 @@
   },
   "include": ["src/**/*", "examples/**/*"],
   "exclude": ["node_modules", "tests"]
-} 
+}
