@@ -84,17 +84,12 @@ export function verifyEcdsaSignature({
     // noble/curves' p256.verify expects a DER-encoded signature.
     // We must convert the raw r||s signature to DER format first.
     sigToVerify = rawEcdsaSigToDer(signature);
-    // Debug output for DER signature
-    console.debug('[DEBUG] DER-encoded signature (hex):', Buffer.from(sigToVerify).toString('hex'));
   }
 
   // p256.verify expects a DER-encoded signature, a message hash, and a public key
   try {
     // The message must be hashed with SHA256 before verification.
     const msgHash = sha256(message);
-    // Debug output for message hash and public key
-    console.debug('[DEBUG] message hash (hex):', Buffer.from(msgHash).toString('hex'));
-    console.debug('[DEBUG] publicKey (hex):', Buffer.from(pubkeyBytes).toString('hex'));
     return p256.verify(sigToVerify, msgHash, pubkeyBytes);
   } catch {
     // If verification fails due to an invalid signature format or other errors,

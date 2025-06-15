@@ -5,8 +5,6 @@
 
 // TODO: Implement quote verification logic
 
-console.log('Hello TypeScript');
-
 import { QuoteVerifier } from './quote-verifier';
 import { CollateralFetcher } from './collateral-fetcher';
 import { QuoteParser } from './quote-parser';
