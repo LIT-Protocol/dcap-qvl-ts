@@ -1,6 +1,6 @@
 {
   "name": "@lit-protocol/dcap-qvl-ts",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "dist/index.js",
   "type": "module",
   "files": [
