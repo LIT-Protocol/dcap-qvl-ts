@@ -3,8 +3,6 @@
 
 // Entry point for the dcap-js library
 
-// TODO: Implement quote verification logic
-
 import { QuoteVerifier } from './quote-verifier';
 import { CollateralFetcher } from './collateral-fetcher';
 import { QuoteParser } from './quote-parser';

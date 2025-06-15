@@ -270,43 +270,4 @@ describe('crypto-utils', () => {
       ).toThrow('Certificate chain validation failed');
     });
   });
-
-  // TODO: node-forge fails to parse EC PCK certificates in this environment ("Cannot read public key. OID is not RSA.").
-  // Re-enable this test once EC parsing is supported or a workaround is found.
-  // describe('ASN.1 Intel SGX extension extraction', () => {
-  //   it('extracts FMSPC, CPU SVN, and PCE SVN from a real PCK certificate', async () => {
-  //     // eslint-disable-next-line @typescript-eslint/no-var-requires
-  //     const collateral = require('../dcap-qvl-rust/sample/sgx_quote_collateral.json');
-  //     // The PCK cert chain is in pck_crl_issuer_chain (first cert is leaf)
-  //     const pemChain = collateral.pck_crl_issuer_chain;
-  //     // Extract the first certificate (leaf)
-  //     const pemMatch = /-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/s.exec(pemChain);
-  //     expect(pemMatch).toBeTruthy();
-  //     const pem = pemMatch![0];
-  //     // Use helpers from binary-utils
-  //     const {
-  //       parseCertificate,
-  //       getIntelExtension,
-  //       getFmspcFromIntelExtension,
-  //       getCpuSvnFromIntelExtension,
-  //       getPceSvnFromIntelExtension,
-  //     } = await import('../src/binary-utils');
-  //     const cert = parseCertificate(pem);
-  //     const ext = getIntelExtension(cert);
-  //     expect(ext).toBeTruthy();
-  //     const fmspc = getFmspcFromIntelExtension(ext!);
-  //     const cpuSvn = getCpuSvnFromIntelExtension(ext!);
-  //     const pceSvn = getPceSvnFromIntelExtension(ext!);
-  //     expect(fmspc).toBeInstanceOf(Uint8Array);
-  //     expect(cpuSvn).toBeInstanceOf(Uint8Array);
-  //     expect(pceSvn).toBeInstanceOf(Uint8Array);
-  //     expect(fmspc!.length).toBe(6);
-  //     expect(cpuSvn!.length).toBe(16);
-  //     expect(pceSvn!.length === 1 || pceSvn!.length === 2).toBe(true);
-  //     // Print hex for manual validation (optional)
-  //     // console.log('FMSPC:', Buffer.from(fmspc!).toString('hex'));
-  //     // console.log('CPU SVN:', Buffer.from(cpuSvn!).toString('hex'));
-  //     // console.log('PCE SVN:', Buffer.from(pceSvn!).toString('hex'));
-  //   });
-  // });
 });
