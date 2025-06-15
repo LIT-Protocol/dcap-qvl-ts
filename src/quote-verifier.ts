@@ -184,7 +184,6 @@ export class QuoteVerifier {
       };
     }
     // --- FMSPC, CPU SVN, PCE SVN Extraction and TCB Status/Advisory Determination ---
-    // TODO: Implement extension extraction for FMSPC, CPU SVN, PCE SVN if needed
     // Extract Intel SGX extension from PCK leaf cert
     // Extract FMSPC, CPU SVN, PCE SVN from the extension
     // Compare FMSPC to tcbInfo.fmspc (hex string)
