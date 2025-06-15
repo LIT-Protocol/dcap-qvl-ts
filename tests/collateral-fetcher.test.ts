@@ -69,10 +69,10 @@ describe('CollateralFetcher Integration (Real Endpoints)', () => {
     const collateral: QuoteCollateralV3 = {
       tcbInfoIssuerChain: rawCollateral.tcb_info_issuer_chain,
       tcbInfo: rawCollateral.tcb_info,
-      tcbInfoSignature: Buffer.from(rawCollateral.tcb_info_signature, 'base64'),
+      tcbInfoSignature: Buffer.from(rawCollateral.tcb_info_signature, 'hex'),
       qeIdentityIssuerChain: rawCollateral.qe_identity_issuer_chain,
       qeIdentity: rawCollateral.qe_identity,
-      qeIdentitySignature: Buffer.from(rawCollateral.qe_identity_signature, 'base64'),
+      qeIdentitySignature: Buffer.from(rawCollateral.qe_identity_signature, 'hex'),
     };
     const fetcher = new CollateralFetcher({});
     const verifier = new QuoteVerifier(fetcher);
