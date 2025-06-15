@@ -13,7 +13,8 @@
     "dev": "nodemon --exec ts-node src/index.ts",
     "lint": "eslint . --ext .ts --max-warnings 0",
     "format": "prettier --write .",
-    "test": "jest -u"
+    "test": "jest -u",
+    "docs": "typedoc --entryPoints src/index.ts --out docs --readme README.md"
   },
   "keywords": [],
   "author": "",
@@ -35,6 +36,7 @@
     "rimraf": "^5.0.1",
     "ts-jest": "^29.4.0",
     "ts-node": "^10.9.1",
+    "typedoc": "^0.28.5",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.34.0"
   },
