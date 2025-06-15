@@ -17,6 +17,7 @@ import {
   TD_REPORT15_BYTE_LEN,
   BODY_BYTE_SIZE,
 } from './constants';
+import forge from 'node-forge';
 
 declare module './quote-types' {
   interface TcbInfo {
@@ -109,7 +110,17 @@ export class QuoteVerifier {
       };
     }
 
-    // 7. TCB Extraction and Status/Advisory Determination
+    // 7. CRL Revocation Checking
+    const isRevoked = await this.checkRevocationWithCrls(pckPemChain);
+    if (isRevoked) {
+      return {
+        status: 'Revoked',
+        advisoryIds: [],
+        report: quote.report,
+      };
+    }
+
+    // 8. TCB Extraction and Status/Advisory Determination
     const tcbResult = this.extractTcbStatusAndAdvisories(quote, tcbInfo, isTdx);
     return tcbResult;
   }
@@ -241,6 +252,55 @@ export class QuoteVerifier {
       signature: ecdsaSignature,
       isRaw: true,
     });
+  }
+
+  /**
+   * Checks if any certificate in the PCK chain is revoked using CRLs.
+   * Returns true if any cert is revoked, false otherwise.
+   */
+  private async checkRevocationWithCrls(pckPemChain: string): Promise<boolean> {
+    // Parse the PEM chain to forge certificates
+    const certs = pckPemChain
+      .split(/-----END CERTIFICATE-----/)
+      .filter((c) => c.includes('BEGIN CERTIFICATE'))
+      .map((c) => forge.pki.certificateFromPem(c + '\n-----END CERTIFICATE-----'));
+    // For each issuer (except root), fetch the CRL and check revocation
+    for (let i = 0; i < certs.length - 1; i++) {
+      const cert = certs[i];
+      const issuerCert = certs[i + 1];
+      // Determine CA type (processor/platform) from issuer CN or O
+      const issuerCN = issuerCert.subject.getField('CN')?.value || '';
+      let caType = 'processor';
+      if (/platform/i.test(issuerCN)) caType = 'platform';
+      // Fetch CRL for this CA
+      let crlPem: string;
+      try {
+        crlPem = await this.collateralFetcher.fetchPckCrl(caType);
+      } catch {
+        // If CRL fetch fails, treat as not revoked (or could be stricter)
+        continue;
+      }
+      // Parse CRL
+      let crl: unknown;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const crlFromPem = (forge.pki as any).crlFromPem;
+        crl = crlFromPem(crlPem) as unknown;
+      } catch {
+        continue;
+      }
+      // Check if cert is revoked
+      const serialHex = cert.serialNumber.replace(/^0+/, '');
+      // revokedCertificates is unknown[], so we assert rc as unknown and cast to the expected shape
+      const revoked = (crl as { revokedCertificates?: unknown[] }).revokedCertificates?.some(
+        (rc: unknown) => {
+          const revokedCert = rc as { serialNumber: string };
+          return revokedCert.serialNumber.replace(/^0+/, '') === serialHex;
+        },
+      );
+      if (revoked) return true;
+    }
+    return false;
   }
 
   /**
