@@ -7,7 +7,7 @@ This guide demonstrates how to use the dcap-js public API for Intel SGX/TDX quot
 **CommonJS:**
 
 ```js
-const { DcapVerifier } = require('../src');
+const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
 const fs = require('fs');
 const path = require('path');
 
@@ -34,16 +34,16 @@ const verifier = new DcapVerifier();
 **ESM:**
 
 ```js
-import { DcapVerifier } from '../src/index.js';
+import { DcapVerifier } from '@lit-protocol/dcap-qvl-ts';
 import fs from 'fs';
 import path from 'path';
 
 const quotePath = path.join(
-  path.dirname(import.meta.url.replace('file://', '')),
+  path.dirname(new URL(import.meta.url).pathname),
   '../dcap-qvl-rust/sample/sgx_quote',
 );
 const collateralPath = path.join(
-  path.dirname(import.meta.url.replace('file://', '')),
+  path.dirname(new URL(import.meta.url).pathname),
   '../dcap-qvl-rust/sample/sgx_quote_collateral.json',
 );
 const quoteBytes = fs.readFileSync(quotePath);
@@ -67,7 +67,7 @@ console.log('Verification result:', result);
 ## 2. Automatic Collateral Fetching
 
 ```js
-const { DcapVerifier } = require('../src');
+const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
 const fs = require('fs');
 const path = require('path');
 
@@ -93,7 +93,7 @@ const verifier = new DcapVerifier({
 ## 3. Custom Verification Options
 
 ```js
-const { DcapVerifier } = require('../src');
+const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
 const verifier = new DcapVerifier({
   pccsUrl: 'https://localhost:8081/sgx/certification/v4',
   timeout: 10000,
@@ -109,7 +109,7 @@ const verifier = new DcapVerifier({
 ## 4. Quote Parsing Without Verification
 
 ```js
-const { DcapVerifier } = require('../src');
+const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
 const fs = require('fs');
 const path = require('path');
 
@@ -126,7 +126,7 @@ console.log('Parsed quote:', parsed);
 ## 5. Error Handling Example
 
 ```js
-const { DcapVerifier } = require('../src');
+const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
 const verifier = new DcapVerifier();
 (async () => {
   try {
