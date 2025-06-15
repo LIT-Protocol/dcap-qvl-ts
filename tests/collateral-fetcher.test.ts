@@ -1,7 +1,6 @@
 import { CollateralFetcher } from '../src/collateral-fetcher';
 import { QuoteVerifier } from '../src/quote-verifier';
 import { QuoteCollateralV3 } from '../src/quote-types';
-import forge from 'node-forge';
 import fs from 'fs';
 import path from 'path';
 

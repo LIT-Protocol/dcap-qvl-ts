@@ -17,7 +17,6 @@ import {
   TD_REPORT15_BYTE_LEN,
   BODY_BYTE_SIZE,
 } from './constants';
-import forge from 'node-forge';
 
 declare module './quote-types' {
   interface TcbInfo {
