@@ -7,7 +7,6 @@ import {
 import forge from 'node-forge';
 import fs from 'fs';
 import path from 'path';
-import { sha256 } from '@noble/hashes/sha256';
 
 describe('crypto-utils', () => {
   describe('rawEcdsaSigToDer', () => {
@@ -48,12 +47,11 @@ describe('crypto-utils', () => {
       const message = fs.readFileSync(path.join(__dirname, 'ecdsa-message.txt'));
       const sigRawHex = fs.readFileSync(path.join(__dirname, 'ecdsa-sig-raw.hex'), 'utf8').trim();
       const sigRaw = Buffer.from(sigRawHex, 'hex');
-      // Node.js crypto signs the hash, so hash the message before verifying with @noble/curves
-      const msgHash = sha256(message);
+
       expect(
         verifyEcdsaSignature({
           publicKey: pubPem,
-          message: msgHash,
+          message: message,
           signature: sigRaw,
           isRaw: true,
         }),
@@ -64,7 +62,7 @@ describe('crypto-utils', () => {
       expect(
         verifyEcdsaSignature({
           publicKey: pubPem,
-          message: msgHash,
+          message: message,
           signature: tampered,
           isRaw: true,
         }),

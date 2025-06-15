@@ -4,6 +4,13 @@ import { parseCertificateChain } from './binary-utils';
 import { CollateralFetcher } from './collateral-fetcher';
 import { VerifiedReport, QuoteCollateralV3, VerificationStatus, TcbInfo } from './quote-types';
 import { sha256 } from '@noble/hashes/sha256';
+import {
+  HEADER_BYTE_LEN,
+  ENCLAVE_REPORT_BYTE_LEN,
+  TD_REPORT10_BYTE_LEN,
+  TD_REPORT15_BYTE_LEN,
+  BODY_BYTE_SIZE,
+} from './constants';
 
 declare module './quote-types' {
   interface TcbInfo {
@@ -19,7 +26,6 @@ export class QuoteVerifier {
   }
 
   async verify(quoteBytes: Uint8Array, collateral: QuoteCollateralV3): Promise<VerifiedReport> {
-    console.log('[TDX DEBUG] Entered verify function');
     // Parse the quote
     const quote = QuoteParser.parse(quoteBytes);
 
@@ -27,51 +33,25 @@ export class QuoteVerifier {
     let tcbInfo: TcbInfo;
     try {
       tcbInfo = JSON.parse(collateral.tcbInfo);
-      console.log('[TDX DEBUG] Parsed tcbInfo:', tcbInfo);
-      console.log('[TDX DEBUG] tcbInfo keys:', Object.keys(tcbInfo));
-      console.log('[TDX DEBUG] typeof tcbInfo.tcbLevels:', typeof tcbInfo.tcbLevels);
-      console.log(
-        '[TDX DEBUG] Array.isArray(tcbInfo.tcbLevels):',
-        Array.isArray(tcbInfo.tcbLevels),
-      );
-      console.log(
-        '[TDX DEBUG] tcbInfo.tcbLevels value:',
-        JSON.stringify(tcbInfo.tcbLevels, null, 2).slice(0, 500),
-      );
     } catch {
-      console.log('[TDX DEBUG] Early return: failed to parse tcbInfo');
       return {
         status: 'Unknown',
         advisoryIds: [],
         report: quote.report,
       };
     }
-    console.log('[TDX DEBUG] After parsing tcbInfo');
     // For TDX, check TCB info metadata
     const isTdx = quote.report.type === 'TD10' || quote.report.type === 'TD15';
-    console.log('[TDX DEBUG] isTdx:', isTdx);
     if (isTdx && (tcbInfo.id !== 'TDX' || tcbInfo.version < 3)) {
-      console.log(
-        '[TDX DEBUG] Early return: TDX but tcbInfo.id/version mismatch',
-        tcbInfo.id,
-        tcbInfo.version,
-      );
       return {
         status: 'Unknown',
         advisoryIds: [],
         report: quote.report,
       };
     }
-    console.log('[TDX DEBUG] After TDX id/version check');
     // Check TCB info expiration
     const now = Date.now();
     if (tcbInfo.nextUpdate && now > new Date(tcbInfo.nextUpdate).getTime()) {
-      console.log(
-        '[TDX DEBUG] Early return: tcbInfo.nextUpdate expired',
-        tcbInfo.nextUpdate,
-        'now:',
-        new Date(now).toISOString(),
-      );
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -79,33 +59,18 @@ export class QuoteVerifier {
       };
     }
     if (tcbInfo.issueDate && now < new Date(tcbInfo.issueDate).getTime()) {
-      console.log(
-        '[TDX DEBUG] Early return: tcbInfo.issueDate in future',
-        tcbInfo.issueDate,
-        'now:',
-        new Date(now).toISOString(),
-      );
       return {
         status: 'Unknown',
         advisoryIds: [],
         report: quote.report,
       };
     }
-    console.log('[TDX DEBUG] After tcbLevels check');
     // Validate TCB info issuer chain
     const tcbCerts = parseCertificateChain(collateral.tcbInfoIssuerChain);
     // --- TCB Info Signature Validation ---
     const tcbLeafCert = tcbCerts[0];
     const tcbInfoBytes = Buffer.from(collateral.tcbInfo, 'utf8');
     const tcbSig = collateral.tcbInfoSignature;
-    // Debug output for signature verification
-    console.log(
-      '[TDX DEBUG] tcbLeafCert.publicKey (hex):',
-      Buffer.from(tcbLeafCert.publicKey).toString('hex'),
-    );
-    console.log('[TDX DEBUG] tcbInfoBytes (hex):', tcbInfoBytes.toString('hex'));
-    console.log('[TDX DEBUG] tcbInfoBytes (utf8):', tcbInfoBytes.toString('utf8').slice(0, 200));
-    console.log('[TDX DEBUG] tcbSig (hex):', Buffer.from(tcbSig).toString('hex'));
     const validTcbSig = verifyEcdsaSignature({
       publicKey: tcbLeafCert.publicKey,
       message: tcbInfoBytes,
@@ -113,7 +78,6 @@ export class QuoteVerifier {
       isRaw: true,
     });
     if (!validTcbSig) {
-      console.log('[TDX DEBUG] Early return: invalid tcbInfo signature');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -145,7 +109,6 @@ export class QuoteVerifier {
       qeAuthData = quote.authData.data.qeReportData.qeAuthData.data;
       ecdsaSignature = quote.authData.data.ecdsaSignature;
     } else {
-      console.log('[TDX DEBUG] Early return: invalid authData version');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -162,7 +125,6 @@ export class QuoteVerifier {
       isRaw: true,
     });
     if (!validQeReportSig) {
-      console.log('[TDX DEBUG] Early return: invalid qeReport signature');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -177,7 +139,6 @@ export class QuoteVerifier {
     const reportData = qeReport.slice(320, 384); // 64 bytes
     const reportDataHash = reportData.slice(0, 32);
     if (!qeHashBytes.every((b, i) => b === reportDataHash[i])) {
-      console.log('[TDX DEBUG] Early return: qeHashBytes mismatch');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -185,8 +146,30 @@ export class QuoteVerifier {
       };
     }
     // --- Quote Signature Verification (using attestation key) ---
-    const signedQuoteLen = quoteBytes.length - 64;
+    let signedQuoteLen: number;
+    switch (quote.report.type) {
+      case 'SgxEnclave':
+        signedQuoteLen = HEADER_BYTE_LEN + ENCLAVE_REPORT_BYTE_LEN;
+        break;
+      case 'TD10':
+        signedQuoteLen = HEADER_BYTE_LEN + TD_REPORT10_BYTE_LEN;
+        break;
+      case 'TD15':
+        signedQuoteLen = HEADER_BYTE_LEN + TD_REPORT15_BYTE_LEN;
+        break;
+      default:
+        return {
+          status: 'Unknown',
+          advisoryIds: [],
+          report: quote.report,
+        };
+    }
+    if (quote.header.version === 5) {
+      signedQuoteLen += BODY_BYTE_SIZE;
+    }
+
     const signedQuote = quoteBytes.slice(0, signedQuoteLen);
+
     const validQuoteSig = verifyEcdsaSignature({
       publicKey: ecdsaAttestationKey,
       message: signedQuote,
@@ -194,7 +177,6 @@ export class QuoteVerifier {
       isRaw: true,
     });
     if (!validQuoteSig) {
-      console.log('[TDX DEBUG] Early return: invalid quote signature');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -221,7 +203,6 @@ export class QuoteVerifier {
       quotePceSvn = new Uint8Array([0, 0]);
     }
     if (!quoteCpuSvn || !quotePceSvn) {
-      console.log('[TDX DEBUG] Early return: quoteCpuSvn or quotePceSvn is undefined');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -229,18 +210,14 @@ export class QuoteVerifier {
       };
     }
     // Find matching TCB level
-    console.log('[TDX DEBUG] About to find matching TCB level');
     let tcbStatus: VerificationStatus = 'Unknown';
     let advisoryIds: string[] = [];
     let tcbLevelsToCheck: unknown[] = [];
     if (Array.isArray(tcbInfo.tcbLevels) && tcbInfo.tcbLevels.length > 0) {
       tcbLevelsToCheck = tcbInfo.tcbLevels;
-      console.log('[TDX DEBUG] tcbLevelsToCheck length:', tcbLevelsToCheck.length);
       for (let idx = 0; idx < tcbLevelsToCheck.length; idx++) {
         try {
           const tcbLevelRaw = tcbLevelsToCheck[idx];
-          const tcbLevelObj = tcbLevelRaw as Record<string, unknown>;
-          console.log(`[TDX DEBUG] tcbLevel[${idx}] keys:`, Object.keys(tcbLevelObj));
           const tcbLevel = tcbLevelRaw as {
             tcb: unknown;
             tcbStatus?: string;
@@ -276,8 +253,8 @@ export class QuoteVerifier {
               break;
             }
           }
-        } catch (err) {
-          console.log('[TDX DEBUG] Exception in tcbLevel loop:', err);
+        } catch {
+          // ignore parsing errors
         }
       }
     } else if (isTdx && tcbInfo.tdxModuleIdentities && Array.isArray(tcbInfo.tdxModuleIdentities)) {
@@ -287,7 +264,6 @@ export class QuoteVerifier {
           ? ((id as Record<string, unknown>)['tcbLevels'] as unknown[])
           : [],
       );
-      console.log('[TDX DEBUG] Using tdxModuleIdentities for TDX TCB comparison.');
     }
     // --- Debug/Production Mode Check ---
     let debugMode = false;
@@ -318,7 +294,6 @@ export class QuoteVerifier {
       };
     }
     if (tcbStatus === 'Unknown') {
-      console.log('[TDX DEBUG] Early return: tcbStatus is Unknown at end');
       return {
         status: tcbStatus,
         advisoryIds,

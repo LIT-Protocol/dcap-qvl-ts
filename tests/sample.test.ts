@@ -17,10 +17,6 @@ import { QuoteVerifier } from '../src/quote-verifier';
 import { CollateralFetcher } from '../src/collateral-fetcher';
 import { QuoteCollateralV3 } from '../src/quote-types';
 
-test('adds 1 + 2 to equal 3', () => {
-  expect(1 + 2).toBe(3);
-});
-
 test('readUint8 reads a single byte', () => {
   const buf = new Uint8Array([0x12]);
   expect(readUint8(buf, 0)).toBe(0x12);
@@ -79,63 +75,31 @@ describe('X.509 Certificate Utilities', () => {
   });
 });
 
-test('validatePemCertificate', () => {
-  // Add your validation logic here
-  expect(true).toBe(true);
-});
-
-test('certificateToPem', () => {
-  // Add your conversion logic here
-  expect(true).toBe(true);
-});
-
-test('certificateToDer', () => {
-  // Add your conversion logic here
-  expect(true).toBe(true);
-});
-
-test('derToCertificate', () => {
-  // Add your conversion logic here
-  expect(true).toBe(true);
-});
-
-test('parseCertificate', () => {
-  // Add your parsing logic here
-  expect(true).toBe(true);
-});
-
-test('getCertificateInfo', () => {
-  // Add your info extraction logic here
-  expect(true).toBe(true);
-});
-
-test('isCertificateValidNow', () => {
-  // Add your validation logic here
-  expect(true).toBe(true);
-});
-
-test('validateBasicConstraints', () => {
-  // Add your validation logic here
-  expect(true).toBe(true);
-});
-
-test('validateKeyUsage', () => {
-  // Add your validation logic here
-  expect(true).toBe(true);
+describe('QuoteVerifier SGX integration', () => {
+  it.skip('verifies an SGX quote and returns UpToDate status', async () => {
+    // This is a sample SGX quote. We can add more tests with different quotes.
+    const quoteBytes = fs.readFileSync(path.join(__dirname, '../dcap-qvl-rust/sample/sgx_quote'));
+    const collateralJson = fs.readFileSync(
+      path.join(__dirname, '../dcap-qvl-rust/sample/sgx_quote_collateral.json'),
+      'utf-8',
+    );
+    const collateral: QuoteCollateralV3 = JSON.parse(collateralJson);
+    const verifier = new QuoteVerifier(new CollateralFetcher());
+    const result = await verifier.verify(quoteBytes, collateral);
+    expect(result.status).toBe('ConfigurationAndSWHardeningNeeded');
+    expect(result.advisoryIds).toEqual(['INTEL-SA-00289', 'INTEL-SA-00615']);
+  });
 });
 
 describe('QuoteVerifier TDX integration', () => {
   it('verifies a TDX quote and returns UpToDate status', async () => {
-    // Load TDX quote (raw binary)
+    // This is a sample TDX quote. We can add more tests with different quotes.
     const quoteBytes = fs.readFileSync(path.join(__dirname, '../dcap-qvl-rust/sample/tdx_quote'));
-    console.log('First 8 bytes:', quoteBytes.slice(0, 8)); // Debug: should start with 04 00 ...
-    // Load TDX collateral
     const collateralJson = fs.readFileSync(
       path.join(__dirname, '../dcap-qvl-rust/sample/tdx_quote_collateral.json'),
-      'utf8',
+      'utf-8',
     );
     const collateralObj = JSON.parse(collateralJson);
-    // The tcb_info field is a JSON string, so we keep it as-is
     const collateral: QuoteCollateralV3 = {
       tcbInfoIssuerChain: collateralObj.tcb_info_issuer_chain,
       tcbInfo: collateralObj.tcb_info,
@@ -144,21 +108,7 @@ describe('QuoteVerifier TDX integration', () => {
       qeIdentity: collateralObj.qe_identity,
       qeIdentitySignature: Buffer.from(collateralObj.qe_identity_signature, 'hex'),
     };
-    // Debug: print tcbInfoSignature length and hex
-    console.log('[TEST DEBUG] tcbInfoSignature length:', collateral.tcbInfoSignature.length);
-    console.log(
-      '[TEST DEBUG] tcbInfoSignature hex:',
-      Buffer.from(collateral.tcbInfoSignature).toString('hex'),
-    );
-    // Print tcbInfoBytes and tcbLeafCert.publicKey (hex) for comparison
-    const tcbInfoBytes = Buffer.from(collateral.tcbInfo, 'utf8');
-    console.log('[TEST DEBUG] tcbInfoBytes (hex):', tcbInfoBytes.toString('hex'));
-    const tcbCerts = parseCertificateChain(collateral.tcbInfoIssuerChain);
-    const tcbLeafCert = tcbCerts[0];
-    console.log(
-      '[TEST DEBUG] tcbLeafCert.publicKey (hex):',
-      Buffer.from(tcbLeafCert.publicKey).toString('hex'),
-    );
+
     const verifier = new QuoteVerifier(new CollateralFetcher());
     const result = await verifier.verify(quoteBytes, collateral);
     expect(result.status).toBe('UpToDate');

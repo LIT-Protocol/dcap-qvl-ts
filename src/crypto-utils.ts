@@ -62,7 +62,14 @@ export function verifyEcdsaSignature({
   if (typeof publicKey === 'string') {
     pubkeyBytes = pemToRawP256PublicKey(publicKey);
   } else {
-    pubkeyBytes = publicKey;
+    // If a 64-byte raw key is passed, prepend 0x04 for uncompressed format
+    if (publicKey.length === 64) {
+      pubkeyBytes = new Uint8Array(65);
+      pubkeyBytes[0] = 0x04;
+      pubkeyBytes.set(publicKey, 1);
+    } else {
+      pubkeyBytes = publicKey;
+    }
   }
 
   let sigToVerify = signature;
