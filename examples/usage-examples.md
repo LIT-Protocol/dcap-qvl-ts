@@ -1,30 +1,8 @@
-# dcap-js
-
-[![MIT License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-A JavaScript/TypeScript port of the [Phala-Network/dcap-qvl](https://github.com/Phala-Network/dcap-qvl) Rust project.
-
-## Overview
-
-This library implements quote verification logic for DCAP (Data Center Attestation Primitives) in pure JavaScript/TypeScript. It is inspired by and ports the functionality of the original Rust crate, supporting SGX and TDX quotes.
-
-## Features
-
-- Verify SGX and TDX quotes
-- Get collateral from PCCS
-- Extract information from quotes
-
-## Installation
-
-```bash
-npm install dcap-js
-```
-
-## Usage Examples
+# dcap-js Usage Examples
 
 This guide demonstrates how to use the dcap-js public API for Intel SGX/TDX quote verification and parsing.
 
-### 1. Basic Quote Verification (with Provided Collateral)
+## 1. Basic Quote Verification (with Provided Collateral)
 
 **CommonJS:**
 
@@ -86,7 +64,7 @@ console.log('Verification result:', result);
 
 ---
 
-### 2. Automatic Collateral Fetching
+## 2. Automatic Collateral Fetching
 
 ```js
 const { DcapVerifier } = require('../src');
@@ -112,7 +90,7 @@ const verifier = new DcapVerifier({
 
 ---
 
-### 3. Custom Verification Options
+## 3. Custom Verification Options
 
 ```js
 const { DcapVerifier } = require('../src');
@@ -128,7 +106,7 @@ const verifier = new DcapVerifier({
 
 ---
 
-### 4. Quote Parsing Without Verification
+## 4. Quote Parsing Without Verification
 
 ```js
 const { DcapVerifier } = require('../src');
@@ -145,7 +123,7 @@ console.log('Parsed quote:', parsed);
 
 ---
 
-### 5. Error Handling Example
+## 5. Error Handling Example
 
 ```js
 const { DcapVerifier } = require('../src');
@@ -162,7 +140,7 @@ const verifier = new DcapVerifier();
 
 ---
 
-### 6. Working with Different Quote Formats
+## 6. Working with Different Quote Formats
 
 - The API supports both SGX and TDX quotes (V3, V4, V5). Use the same methods as above.
 - For TDX, set `isTdx: true` in options if needed for collateral fetching.
@@ -170,15 +148,3 @@ const verifier = new DcapVerifier();
 ---
 
 **See the test suite and integration tests for more advanced usage and edge cases.**
-
-## Contributing
-
-Contributions are welcome! Please open issues or pull requests. See the [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
-
-## Reference
-
-This is a JavaScript/TypeScript port of the [Phala-Network/dcap-qvl](https://github.com/Phala-Network/dcap-qvl) Rust project.
