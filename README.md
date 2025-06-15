@@ -28,35 +28,6 @@ This guide demonstrates how to use the dcap-js public API for Intel SGX/TDX quot
 
 ### 1. Basic Quote Verification (with Provided Collateral)
 
-**CommonJS:**
-
-```js
-const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
-const fs = require('fs');
-const path = require('path');
-
-const quotePath = path.join(__dirname, '../dcap-qvl-rust/sample/sgx_quote');
-const collateralPath = path.join(__dirname, '../dcap-qvl-rust/sample/sgx_quote_collateral.json');
-const quoteBytes = fs.readFileSync(quotePath);
-const rawCollateral = JSON.parse(fs.readFileSync(collateralPath, 'utf8'));
-const collateral = {
-  tcbInfoIssuerChain: rawCollateral.tcb_info_issuer_chain,
-  tcbInfo: rawCollateral.tcb_info,
-  tcbInfoSignature: Buffer.from(rawCollateral.tcb_info_signature, 'hex'),
-  qeIdentityIssuerChain: rawCollateral.qe_identity_issuer_chain,
-  qeIdentity: rawCollateral.qe_identity,
-  qeIdentitySignature: Buffer.from(rawCollateral.qe_identity_signature, 'hex'),
-};
-
-const verifier = new DcapVerifier();
-(async () => {
-  const result = await verifier.verifyQuote(quoteBytes, collateral);
-  console.log('Verification result:', result);
-})();
-```
-
-**ESM:**
-
 ```js
 import { DcapVerifier } from '@lit-protocol/dcap-qvl-ts';
 import fs from 'fs';
@@ -91,25 +62,26 @@ console.log('Verification result:', result);
 ### 2. Automatic Collateral Fetching
 
 ```js
-const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
-const fs = require('fs');
-const path = require('path');
+import { DcapVerifier } from '@lit-protocol/dcap-qvl-ts';
+import fs from 'fs';
+import path from 'path';
 
-const quotePath = path.join(__dirname, '../dcap-qvl-rust/sample/sgx_quote');
+const quotePath = path.join(
+  path.dirname(new URL(import.meta.url).pathname),
+  '../dcap-qvl-rust/sample/sgx_quote',
+);
 const quoteBytes = fs.readFileSync(quotePath);
 
 const verifier = new DcapVerifier({
   // Optionally set PCCS URL, timeouts, etc.
   // pccsUrl: 'https://localhost:8081/sgx/certification/v4',
 });
-(async () => {
-  try {
-    const result = await verifier.verifyQuote(quoteBytes);
-    console.log('Verification result:', result);
-  } catch (err) {
-    console.error('Verification failed:', err);
-  }
-})();
+try {
+  const result = await verifier.verifyQuote(quoteBytes);
+  console.log('Verification result:', result);
+} catch (err) {
+  console.error('Verification failed:', err);
+}
 ```
 
 ---
@@ -117,7 +89,7 @@ const verifier = new DcapVerifier({
 ### 3. Custom Verification Options
 
 ```js
-const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
+import { DcapVerifier } from '@lit-protocol/dcap-qvl-ts';
 const verifier = new DcapVerifier({
   pccsUrl: 'https://localhost:8081/sgx/certification/v4',
   timeout: 10000,
@@ -133,11 +105,14 @@ const verifier = new DcapVerifier({
 ### 4. Quote Parsing Without Verification
 
 ```js
-const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
-const fs = require('fs');
-const path = require('path');
+import { DcapVerifier } from '@lit-protocol/dcap-qvl-ts';
+import fs from 'fs';
+import path from 'path';
 
-const quotePath = path.join(__dirname, '../dcap-qvl-rust/sample/sgx_quote');
+const quotePath = path.join(
+  path.dirname(new URL(import.meta.url).pathname),
+  '../dcap-qvl-rust/sample/sgx_quote',
+);
 const quoteBytes = fs.readFileSync(quotePath);
 
 const verifier = new DcapVerifier();
@@ -150,16 +125,14 @@ console.log('Parsed quote:', parsed);
 ### 5. Error Handling Example
 
 ```js
-const { DcapVerifier } = require('@lit-protocol/dcap-qvl-ts');
+import { DcapVerifier } from '@lit-protocol/dcap-qvl-ts';
 const verifier = new DcapVerifier();
-(async () => {
-  try {
-    // Intentionally pass a malformed quote
-    await verifier.verifyQuote(Buffer.from([1, 2, 3]));
-  } catch (err) {
-    console.error('Expected error:', err.message);
-  }
-})();
+try {
+  // Intentionally pass a malformed quote
+  await verifier.verifyQuote(Buffer.from([1, 2, 3]));
+} catch (err) {
+  console.error('Expected error:', err.message);
+}
 ```
 
 ---
