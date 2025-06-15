@@ -2,7 +2,7 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**[📖 API Documentation (GitHub Pages)](https://<your-username>.github.io/<your-repo>/)**
+**[📖 API Documentation](https://LIT-Protocol.github.io/dcap-qvl-ts/)**
 
 A JavaScript/TypeScript port of the [Phala-Network/dcap-qvl](https://github.com/Phala-Network/dcap-qvl) Rust project.
 
