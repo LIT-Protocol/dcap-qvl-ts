@@ -73,16 +73,6 @@ export class QuoteParser {
     offset += ENCLAVE_REPORT_BYTE_LEN;
 
     // Parse AuthData size
-    console.log(
-      '[TDX DEBUG] Offset before AuthData length:',
-      offset,
-      'Buffer length:',
-      quoteBytes.length,
-    );
-    console.log(
-      '[TDX DEBUG] Bytes at AuthData length offset:',
-      quoteBytes.slice(offset - 4, offset + 8),
-    );
     const authDataSize = readUint32LE(quoteBytes, offset);
     offset += AUTH_DATA_SIZE_BYTE_LEN;
     validateBuffer(quoteBytes, offset, authDataSize);
@@ -274,16 +264,6 @@ export class QuoteParser {
     offset += ENCLAVE_REPORT_BYTE_LEN;
 
     // Parse AuthData size
-    console.log(
-      '[TDX DEBUG] Offset before AuthData length:',
-      offset,
-      'Buffer length:',
-      quoteBytes.length,
-    );
-    console.log(
-      '[TDX DEBUG] Bytes at AuthData length offset:',
-      quoteBytes.slice(offset - 4, offset + 8),
-    );
     const authDataSize = readUint32LE(quoteBytes, offset);
     offset += AUTH_DATA_SIZE_BYTE_LEN;
     validateBuffer(quoteBytes, offset, authDataSize);
