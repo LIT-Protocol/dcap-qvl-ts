@@ -2,7 +2,13 @@ import { QuoteParser } from './quote-parser';
 import { verifyEcdsaSignature } from './crypto-utils';
 import { parseCertificateChain } from './binary-utils';
 import { CollateralFetcher } from './collateral-fetcher';
-import { VerifiedReport, QuoteCollateralV3, VerificationStatus, TcbInfo } from './quote-types';
+import {
+  VerifiedReport,
+  QuoteCollateralV3,
+  VerificationStatus,
+  TcbInfo,
+  Quote,
+} from './quote-types';
 import { sha256 } from '@noble/hashes/sha256';
 import {
   HEADER_BYTE_LEN,
@@ -29,123 +35,188 @@ export class QuoteVerifier {
     // Parse the quote
     const quote = QuoteParser.parse(quoteBytes);
 
-    // --- TCB Info Validation ---
+    // 1. TCB Info Validation
+    const tcbInfo = this.validateTcbInfo(collateral.tcbInfo, quote);
+    if (!tcbInfo) {
+      return {
+        status: 'Unknown',
+        advisoryIds: [],
+        report: quote.report,
+      };
+    }
+    const isTdx = quote.report.type === 'TD10' || quote.report.type === 'TD15';
+
+    // 2. TCB Info Signature Validation
+    const tcbInfoSigValid = this.validateTcbInfoSignature(collateral);
+    if (!tcbInfoSigValid) {
+      return {
+        status: 'Unknown',
+        advisoryIds: [],
+        report: quote.report,
+      };
+    }
+
+    // 3. Extract PCK and Auth Data
+    const pckAndAuth = this.extractPckAndAuthData(quote);
+    if (!pckAndAuth) {
+      return {
+        status: 'Unknown',
+        advisoryIds: [],
+        report: quote.report,
+      };
+    }
+    const {
+      pckPemChain,
+      qeReport,
+      qeReportSignature,
+      ecdsaAttestationKey,
+      qeAuthData,
+      ecdsaSignature,
+    } = pckAndAuth;
+
+    // 4. QE Report Signature Verification
+    const qeReportSigValid = this.verifyQeReportSignature(pckPemChain, qeReport, qeReportSignature);
+    if (!qeReportSigValid) {
+      return {
+        status: 'Unknown',
+        advisoryIds: [],
+        report: quote.report,
+      };
+    }
+
+    // 5. QE Report Hash Check
+    const qeReportHashValid = this.verifyQeReportHash(ecdsaAttestationKey, qeAuthData, qeReport);
+    if (!qeReportHashValid) {
+      return {
+        status: 'Unknown',
+        advisoryIds: [],
+        report: quote.report,
+      };
+    }
+
+    // 6. Quote Signature Verification
+    const quoteSigValid = this.verifyQuoteSignature(
+      quote,
+      quoteBytes,
+      ecdsaAttestationKey,
+      ecdsaSignature,
+    );
+    if (!quoteSigValid) {
+      return {
+        status: 'Unknown',
+        advisoryIds: [],
+        report: quote.report,
+      };
+    }
+
+    // 7. TCB Extraction and Status/Advisory Determination
+    const tcbResult = this.extractTcbStatusAndAdvisories(quote, tcbInfo, isTdx);
+    return tcbResult;
+  }
+
+  // --- Modularized Private Methods ---
+
+  private validateTcbInfo(tcbInfoStr: string, quote: Quote): TcbInfo | null {
     let tcbInfo: TcbInfo;
     try {
-      tcbInfo = JSON.parse(collateral.tcbInfo);
+      tcbInfo = JSON.parse(tcbInfoStr);
     } catch {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
+      return null;
     }
-    // For TDX, check TCB info metadata
     const isTdx = quote.report.type === 'TD10' || quote.report.type === 'TD15';
     if (isTdx && (tcbInfo.id !== 'TDX' || tcbInfo.version < 3)) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
+      return null;
     }
-    // Check TCB info expiration
     const now = Date.now();
     if (tcbInfo.nextUpdate && now > new Date(tcbInfo.nextUpdate).getTime()) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
+      return null;
     }
     if (tcbInfo.issueDate && now < new Date(tcbInfo.issueDate).getTime()) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
+      return null;
     }
-    // Validate TCB info issuer chain
+    return tcbInfo;
+  }
+
+  private validateTcbInfoSignature(collateral: QuoteCollateralV3): boolean {
     const tcbCerts = parseCertificateChain(collateral.tcbInfoIssuerChain);
-    // --- TCB Info Signature Validation ---
     const tcbLeafCert = tcbCerts[0];
     const tcbInfoBytes = Buffer.from(collateral.tcbInfo, 'utf8');
     const tcbSig = collateral.tcbInfoSignature;
-    const validTcbSig = verifyEcdsaSignature({
+    return verifyEcdsaSignature({
       publicKey: tcbLeafCert.publicKey,
       message: tcbInfoBytes,
       signature: tcbSig,
       isRaw: true,
     });
-    if (!validTcbSig) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
-    // --- PCK Certificate Chain Validation ---
-    let pckPemChain: string;
-    let qeReport: Uint8Array,
-      qeReportSignature: Uint8Array,
-      ecdsaAttestationKey: Uint8Array,
-      qeAuthData: Uint8Array,
-      ecdsaSignature: Uint8Array;
+  }
+
+  private extractPckAndAuthData(quote: Quote): {
+    pckPemChain: string;
+    qeReport: Uint8Array;
+    qeReportSignature: Uint8Array;
+    ecdsaAttestationKey: Uint8Array;
+    qeAuthData: Uint8Array;
+    ecdsaSignature: Uint8Array;
+  } | null {
     if (quote.authData.version === 3) {
-      pckPemChain = Buffer.from(quote.authData.data.certificationData.body.data).toString('utf8');
-      qeReport = quote.authData.data.qeReport;
-      qeReportSignature = quote.authData.data.qeReportSignature;
-      ecdsaAttestationKey = quote.authData.data.ecdsaAttestationKey;
-      qeAuthData = quote.authData.data.qeAuthData.data;
-      ecdsaSignature = quote.authData.data.ecdsaSignature;
-    } else if (quote.authData.version === 4) {
-      // For TDX v4, use nested QEReportCertificationData
-      pckPemChain = Buffer.from(
-        quote.authData.data.qeReportData.certificationData.body.data,
-      ).toString('utf8');
-      qeReport = quote.authData.data.qeReportData.qeReport;
-      qeReportSignature = quote.authData.data.qeReportData.qeReportSignature;
-      ecdsaAttestationKey = quote.authData.data.ecdsaAttestationKey;
-      qeAuthData = quote.authData.data.qeReportData.qeAuthData.data;
-      ecdsaSignature = quote.authData.data.ecdsaSignature;
-    } else {
       return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
+        pckPemChain: Buffer.from(quote.authData.data.certificationData.body.data).toString('utf8'),
+        qeReport: quote.authData.data.qeReport,
+        qeReportSignature: quote.authData.data.qeReportSignature,
+        ecdsaAttestationKey: quote.authData.data.ecdsaAttestationKey,
+        qeAuthData: quote.authData.data.qeAuthData.data,
+        ecdsaSignature: quote.authData.data.ecdsaSignature,
+      };
+    } else if (quote.authData.version === 4) {
+      return {
+        pckPemChain: Buffer.from(
+          quote.authData.data.qeReportData.certificationData.body.data,
+        ).toString('utf8'),
+        qeReport: quote.authData.data.qeReportData.qeReport,
+        qeReportSignature: quote.authData.data.qeReportData.qeReportSignature,
+        ecdsaAttestationKey: quote.authData.data.ecdsaAttestationKey,
+        qeAuthData: quote.authData.data.qeReportData.qeAuthData.data,
+        ecdsaSignature: quote.authData.data.ecdsaSignature,
       };
     }
+    return null;
+  }
+
+  private verifyQeReportSignature(
+    pckPemChain: string,
+    qeReport: Uint8Array,
+    qeReportSignature: Uint8Array,
+  ): boolean {
     const pckCerts = parseCertificateChain(pckPemChain);
-    // --- QE Report Signature Verification ---
     const pckLeafCert = pckCerts[0];
-    const validQeReportSig = verifyEcdsaSignature({
+    return verifyEcdsaSignature({
       publicKey: pckLeafCert.publicKey,
       message: qeReport,
       signature: qeReportSignature,
       isRaw: true,
     });
-    if (!validQeReportSig) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
-    // --- QE Report Hash Check ---
+  }
+
+  private verifyQeReportHash(
+    ecdsaAttestationKey: Uint8Array,
+    qeAuthData: Uint8Array,
+    qeReport: Uint8Array,
+  ): boolean {
     const hashInput = new Uint8Array(ecdsaAttestationKey.length + qeAuthData.length);
     hashInput.set(ecdsaAttestationKey, 0);
     hashInput.set(qeAuthData, ecdsaAttestationKey.length);
     const qeHashBytes = sha256(hashInput);
     const reportData = qeReport.slice(320, 384); // 64 bytes
     const reportDataHash = reportData.slice(0, 32);
-    if (!qeHashBytes.every((b, i) => b === reportDataHash[i])) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
-    // --- Quote Signature Verification (using attestation key) ---
+    return qeHashBytes.every((b, i) => b === reportDataHash[i]);
+  }
+
+  private verifyQuoteSignature(
+    quote: Quote,
+    quoteBytes: Uint8Array,
+    ecdsaAttestationKey: Uint8Array,
+    ecdsaSignature: Uint8Array,
+  ): boolean {
     let signedQuoteLen: number;
     switch (quote.report.type) {
       case 'SgxEnclave':
@@ -158,36 +229,30 @@ export class QuoteVerifier {
         signedQuoteLen = HEADER_BYTE_LEN + TD_REPORT15_BYTE_LEN;
         break;
       default:
-        return {
-          status: 'Unknown',
-          advisoryIds: [],
-          report: quote.report,
-        };
+        return false;
     }
     if (quote.header.version === 5) {
       signedQuoteLen += BODY_BYTE_SIZE;
     }
-
     const signedQuote = quoteBytes.slice(0, signedQuoteLen);
-
-    const validQuoteSig = verifyEcdsaSignature({
+    return verifyEcdsaSignature({
       publicKey: ecdsaAttestationKey,
       message: signedQuote,
       signature: ecdsaSignature,
       isRaw: true,
     });
-    if (!validQuoteSig) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
-    // --- FMSPC, CPU SVN, PCE SVN Extraction and TCB Status/Advisory Determination ---
-    // Extract Intel SGX extension from PCK leaf cert
-    // Extract FMSPC, CPU SVN, PCE SVN from the extension
-    // Compare FMSPC to tcbInfo.fmspc (hex string)
-    // Extract CPU SVN and PCE SVN from the quote
+  }
+
+  /**
+   * Extracts TCB-related fields from the quote and tcbInfo, determines TCB status, advisories, and debug/production mode.
+   * Returns a VerifiedReport-like object with status, advisoryIds, and report.
+   */
+  private extractTcbStatusAndAdvisories(
+    quote: Quote,
+    tcbInfo: TcbInfo,
+    isTdx: boolean,
+  ): VerifiedReport {
+    // Extract FMSPC, CPU SVN, PCE SVN from the quote
     let quoteCpuSvn: Uint8Array | undefined;
     let quotePceSvn: Uint8Array | undefined;
     if (quote.report.type === 'SgxEnclave') {
