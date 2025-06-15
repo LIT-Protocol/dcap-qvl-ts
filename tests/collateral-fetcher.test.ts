@@ -2,6 +2,8 @@ import { CollateralFetcher } from '../src/collateral-fetcher';
 import { QuoteVerifier } from '../src/quote-verifier';
 import { QuoteCollateralV3 } from '../src/quote-types';
 import forge from 'node-forge';
+import fs from 'fs';
+import path from 'path';
 
 describe('CollateralFetcher Integration (Real Endpoints)', () => {
   // WARNING: These tests make real network requests to Intel PCS endpoints.
@@ -50,5 +52,44 @@ describe('CollateralFetcher Integration (Real Endpoints)', () => {
     const fetcher = new CollateralFetcher({ useIntelPCS: true });
     const crl = await fetcher.fetchPckCrl('processor');
     expect(typeof crl).toBe('string');
+  });
+
+  it('verifies a real SGX quote end-to-end (matches Rust reference)', async () => {
+    // Read binary quote
+    const quotePath = path.join(__dirname, '../dcap-qvl-rust/sample/sgx_quote');
+    const quoteBytes = fs.readFileSync(quotePath);
+    // Read collateral JSON
+    const collateralPath = path.join(
+      __dirname,
+      '../dcap-qvl-rust/sample/sgx_quote_collateral.json',
+    );
+    const collateralJson = fs.readFileSync(collateralPath, 'utf8');
+    const rawCollateral = JSON.parse(collateralJson);
+    // Map snake_case to camelCase for JS
+    const collateral: QuoteCollateralV3 = {
+      tcbInfoIssuerChain: rawCollateral.tcb_info_issuer_chain,
+      tcbInfo: rawCollateral.tcb_info,
+      tcbInfoSignature: Buffer.from(rawCollateral.tcb_info_signature, 'base64'),
+      qeIdentityIssuerChain: rawCollateral.qe_identity_issuer_chain,
+      qeIdentity: rawCollateral.qe_identity,
+      qeIdentitySignature: Buffer.from(rawCollateral.qe_identity_signature, 'base64'),
+    };
+    const fetcher = new CollateralFetcher({});
+    const verifier = new QuoteVerifier(fetcher);
+    // Use a fixed date for 'now' to match Rust test (before nextUpdate in collateral)
+    const fixedNow = Date.parse('2023-12-01T00:00:00Z');
+    const result = await verifier.verify(quoteBytes, collateral, fixedNow);
+    // Expected from Rust: status: 'ConfigurationAndSWHardeningNeeded', advisoryIds: ['INTEL-SA-00289', 'INTEL-SA-00615']
+    try {
+      expect(result.status).toBe('ConfigurationAndSWHardeningNeeded');
+      expect(result.advisoryIds).toEqual(
+        expect.arrayContaining(['INTEL-SA-00289', 'INTEL-SA-00615']),
+      );
+    } catch (e) {
+      // Print the full report for manual inspection
+      // eslint-disable-next-line no-console
+      console.error('Verification result:', result);
+      throw e;
+    }
   });
 });

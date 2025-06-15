@@ -32,13 +32,19 @@ export class QuoteVerifier {
     this.collateralFetcher = collateralFetcher;
   }
 
-  async verify(quoteBytes: Uint8Array, collateral: QuoteCollateralV3): Promise<VerifiedReport> {
+  async verify(
+    quoteBytes: Uint8Array,
+    collateral: QuoteCollateralV3,
+    now?: number,
+  ): Promise<VerifiedReport> {
     // Parse the quote
     const quote = QuoteParser.parse(quoteBytes);
+    console.debug('[DEBUG] Parsed quote:', JSON.stringify(quote, null, 2));
 
     // 1. TCB Info Validation
-    const tcbInfo = this.validateTcbInfo(collateral.tcbInfo, quote);
+    const tcbInfo = this.validateTcbInfo(collateral.tcbInfo, quote, now);
     if (!tcbInfo) {
+      console.debug('[DEBUG] TCB Info validation failed', { tcbInfo: collateral.tcbInfo });
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -50,6 +56,9 @@ export class QuoteVerifier {
     // 2. TCB Info Signature Validation
     const tcbInfoSigValid = this.validateTcbInfoSignature(collateral);
     if (!tcbInfoSigValid) {
+      console.debug('[DEBUG] TCB Info signature validation failed', {
+        tcbInfo: collateral.tcbInfo,
+      });
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -60,6 +69,7 @@ export class QuoteVerifier {
     // 3. Extract PCK and Auth Data
     const pckAndAuth = this.extractPckAndAuthData(quote);
     if (!pckAndAuth) {
+      console.debug('[DEBUG] Extract PCK and Auth Data failed', { quote });
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -78,6 +88,7 @@ export class QuoteVerifier {
     // 4. QE Report Signature Verification
     const qeReportSigValid = this.verifyQeReportSignature(pckPemChain, qeReport, qeReportSignature);
     if (!qeReportSigValid) {
+      console.debug('[DEBUG] QE Report signature verification failed');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -88,6 +99,7 @@ export class QuoteVerifier {
     // 5. QE Report Hash Check
     const qeReportHashValid = this.verifyQeReportHash(ecdsaAttestationKey, qeAuthData, qeReport);
     if (!qeReportHashValid) {
+      console.debug('[DEBUG] QE Report hash check failed');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -103,6 +115,7 @@ export class QuoteVerifier {
       ecdsaSignature,
     );
     if (!quoteSigValid) {
+      console.debug('[DEBUG] Quote signature verification failed');
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -113,6 +126,7 @@ export class QuoteVerifier {
     // 7. CRL Revocation Checking
     const isRevoked = await this.checkRevocationWithCrls(pckPemChain);
     if (isRevoked) {
+      console.debug('[DEBUG] CRL revocation check: certificate is revoked');
       return {
         status: 'Revoked',
         advisoryIds: [],
@@ -122,27 +136,35 @@ export class QuoteVerifier {
 
     // 8. TCB Extraction and Status/Advisory Determination
     const tcbResult = this.extractTcbStatusAndAdvisories(quote, tcbInfo, isTdx);
+    console.debug('[DEBUG] TCB extraction and status/advisories result:', tcbResult);
     return tcbResult;
   }
 
   // --- Modularized Private Methods ---
 
-  private validateTcbInfo(tcbInfoStr: string, quote: Quote): TcbInfo | null {
+  private validateTcbInfo(tcbInfoStr: string, quote: Quote, now?: number): TcbInfo | null {
     let tcbInfo: TcbInfo;
     try {
       tcbInfo = JSON.parse(tcbInfoStr);
-    } catch {
+    } catch (e) {
+      console.debug('[DEBUG] Failed to parse tcbInfoStr', { tcbInfoStr, error: e });
       return null;
     }
     const isTdx = quote.report.type === 'TD10' || quote.report.type === 'TD15';
     if (isTdx && (tcbInfo.id !== 'TDX' || tcbInfo.version < 3)) {
+      console.debug('[DEBUG] TDX check failed', {
+        tcbInfoId: tcbInfo.id,
+        tcbInfoVersion: tcbInfo.version,
+      });
       return null;
     }
-    const now = Date.now();
-    if (tcbInfo.nextUpdate && now > new Date(tcbInfo.nextUpdate).getTime()) {
+    const nowMs = now !== undefined ? now : Date.now();
+    if (tcbInfo.nextUpdate && nowMs > new Date(tcbInfo.nextUpdate).getTime()) {
+      console.debug('[DEBUG] TCB Info expired', { now: nowMs, nextUpdate: tcbInfo.nextUpdate });
       return null;
     }
-    if (tcbInfo.issueDate && now < new Date(tcbInfo.issueDate).getTime()) {
+    if (tcbInfo.issueDate && nowMs < new Date(tcbInfo.issueDate).getTime()) {
+      console.debug('[DEBUG] TCB Info not yet valid', { now: nowMs, issueDate: tcbInfo.issueDate });
       return null;
     }
     return tcbInfo;
@@ -327,6 +349,7 @@ export class QuoteVerifier {
       quotePceSvn = new Uint8Array([0, 0]);
     }
     if (!quoteCpuSvn || !quotePceSvn) {
+      console.debug('[DEBUG] Missing quoteCpuSvn or quotePceSvn', { quoteCpuSvn, quotePceSvn });
       return {
         status: 'Unknown',
         advisoryIds: [],
@@ -348,10 +371,48 @@ export class QuoteVerifier {
             advisoryIDs?: string[];
           };
           const tcbObj = tcbLevel.tcb as Record<string, unknown>;
+          const sgxComponents = Array.isArray(tcbObj['sgxtcbcomponents'])
+            ? (tcbObj['sgxtcbcomponents'] as { svn: number }[])
+            : undefined;
           const tdxComponents = Array.isArray(tcbObj['tdxtcbcomponents'])
             ? (tcbObj['tdxtcbcomponents'] as { svn: number }[])
             : undefined;
           if (
+            !isTdx &&
+            sgxComponents &&
+            Array.isArray(sgxComponents) &&
+            sgxComponents.length === 16
+          ) {
+            // Compare PCE SVN
+            const tcbPceSvn = tcbObj['pcesvn'] as number | undefined;
+            if (tcbPceSvn !== undefined && quotePceSvn[0] < tcbPceSvn) {
+              console.debug('[DEBUG] Skipping TCB level: quotePceSvn < tcbPceSvn', {
+                idx,
+                quotePceSvn,
+                tcbPceSvn,
+              });
+              continue;
+            }
+            // Compare CPU SVN
+            let cpuSvnMatch = true;
+            for (let i = 0; i < 16; i++) {
+              if (quoteCpuSvn[i] < sgxComponents[i].svn) {
+                cpuSvnMatch = false;
+                console.debug('[DEBUG] Skipping TCB level: quoteCpuSvn < sgxComponent', {
+                  idx,
+                  i,
+                  quoteCpuSvn: quoteCpuSvn[i],
+                  sgxSvn: sgxComponents[i].svn,
+                });
+                break;
+              }
+            }
+            if (!cpuSvnMatch) continue;
+            tcbStatus = (tcbLevel.tcbStatus as VerificationStatus) || 'Unknown';
+            advisoryIds = tcbLevel.advisoryIDs || [];
+            console.debug('[DEBUG] Matched SGX TCB level', { idx, tcbStatus, advisoryIds });
+            break;
+          } else if (
             isTdx &&
             tdxComponents &&
             Array.isArray(tdxComponents) &&
@@ -363,22 +424,35 @@ export class QuoteVerifier {
                 : quote.report.type === 'TD15'
                   ? quote.report.report.base.teeTcbSvn
                   : undefined;
-            if (!teeTcbSvn || teeTcbSvn.length !== 16) continue;
+            if (!teeTcbSvn || teeTcbSvn.length !== 16) {
+              console.debug('[DEBUG] Skipping TCB level: missing or invalid teeTcbSvn', {
+                idx,
+                teeTcbSvn,
+              });
+              continue;
+            }
             let match = true;
             for (let i = 0; i < 16; i++) {
               if (teeTcbSvn[i] < tdxComponents[i].svn) {
                 match = false;
+                console.debug('[DEBUG] Skipping TDX TCB level: teeTcbSvn < tdxComponent', {
+                  idx,
+                  i,
+                  teeTcbSvn: teeTcbSvn[i],
+                  tdxSvn: tdxComponents[i].svn,
+                });
                 break;
               }
             }
             if (match) {
               tcbStatus = (tcbLevel.tcbStatus as VerificationStatus) || 'Unknown';
               advisoryIds = tcbLevel.advisoryIDs || [];
+              console.debug('[DEBUG] Matched TDX TCB level', { idx, tcbStatus, advisoryIds });
               break;
             }
           }
-        } catch {
-          // ignore parsing errors
+        } catch (e) {
+          console.debug('[DEBUG] Error parsing TCB level', { idx, error: e });
         }
       }
     } else if (isTdx && tcbInfo.tdxModuleIdentities && Array.isArray(tcbInfo.tdxModuleIdentities)) {
@@ -396,18 +470,21 @@ export class QuoteVerifier {
       const attrs = quote.report.report.attributes;
       if (attrs && attrs[0] !== undefined && (attrs[0] & 0x02) !== 0) {
         debugMode = true;
+        console.debug('[DEBUG] Debug mode detected (SGX)', { attrs });
       }
     } else if (quote.report.type === 'TD10') {
       // TDX TD10: tdAttributes[0] != 0 means debug mode
       const tdAttrs = quote.report.report.tdAttributes;
       if (tdAttrs && tdAttrs[0] !== undefined && tdAttrs[0] !== 0) {
         debugMode = true;
+        console.debug('[DEBUG] Debug mode detected (TD10)', { tdAttrs });
       }
     } else if (quote.report.type === 'TD15') {
       // TDX TD15: mrServiceTd != [0u8; 48] means debug mode (see Rust)
       const mrServiceTd = quote.report.report.mrServiceTd;
       if (mrServiceTd && Array.isArray(mrServiceTd) && mrServiceTd.some((b: number) => b !== 0)) {
         debugMode = true;
+        console.debug('[DEBUG] Debug mode detected (TD15)', { mrServiceTd });
       }
     }
     if (debugMode) {
@@ -418,6 +495,11 @@ export class QuoteVerifier {
       };
     }
     if (tcbStatus === 'Unknown') {
+      console.debug('[DEBUG] No matching TCB level found', {
+        quoteCpuSvn,
+        quotePceSvn,
+        tcbLevelsToCheck,
+      });
       return {
         status: tcbStatus,
         advisoryIds,
