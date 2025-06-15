@@ -5,10 +5,10 @@ import fs from 'fs';
 import path from 'path';
 
 describe('DcapVerifier Public API', () => {
-  const sgxQuotePath = path.join(__dirname, '../dcap-qvl-rust/sample/sgx_quote');
+  const sgxQuotePath = path.join(process.cwd(), 'dcap-qvl-rust/sample/sgx_quote');
   const sgxCollateralPath = path.join(
-    __dirname,
-    '../dcap-qvl-rust/sample/sgx_quote_collateral.json',
+    process.cwd(),
+    'dcap-qvl-rust/sample/sgx_quote_collateral.json',
   );
   let quoteBytes: Buffer;
   let collateral: QuoteCollateralV3;

@@ -55,12 +55,12 @@ describe('CollateralFetcher Integration (Real Endpoints)', () => {
 
   it('verifies a real SGX quote end-to-end (matches Rust reference)', async () => {
     // Read binary quote
-    const quotePath = path.join(__dirname, '../dcap-qvl-rust/sample/sgx_quote');
+    const quotePath = path.join(process.cwd(), 'dcap-qvl-rust/sample/sgx_quote');
     const quoteBytes = fs.readFileSync(quotePath);
     // Read collateral JSON
     const collateralPath = path.join(
-      __dirname,
-      '../dcap-qvl-rust/sample/sgx_quote_collateral.json',
+      process.cwd(),
+      'dcap-qvl-rust/sample/sgx_quote_collateral.json',
     );
     const collateralJson = fs.readFileSync(collateralPath, 'utf8');
     const rawCollateral = JSON.parse(collateralJson);
