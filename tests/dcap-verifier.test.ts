@@ -1,5 +1,5 @@
 import { DcapVerifier } from '../src/index';
-import { QuoteCollateralV3 } from '../src/quote-types';
+import { QuoteCollateralV3, QuoteVerificationError } from '../src/quote-types';
 import { QuoteParser } from '../src/quote-parser';
 import fs from 'fs';
 import path from 'path';
@@ -39,18 +39,24 @@ describe('DcapVerifier Public API', () => {
     const verifier = new DcapVerifier();
     const badQuote = Buffer.from([1, 2, 3, 4, 5]);
     await expect(verifier.verifyQuote(badQuote, collateral)).rejects.toThrow(
-      /Quote verification failed:/,
+      QuoteVerificationError,
     );
+    await expect(verifier.verifyQuote(badQuote, collateral)).rejects.toMatchObject({
+      code: 'DecodeError',
+    });
   });
 
   it('throws on missing FMSPC', async () => {
     const verifier = new DcapVerifier();
     const spy = jest.spyOn(QuoteParser, 'extractFMSPC').mockImplementation(() => {
-      throw new Error('FMSPC not found');
+      throw new QuoteVerificationError('MissingField', 'FMSPC not found');
     });
     await expect(verifier.verifyQuote(quoteBytes, undefined)).rejects.toThrow(
-      /Failed to extract FMSPC/,
+      QuoteVerificationError,
     );
+    await expect(verifier.verifyQuote(quoteBytes, undefined)).rejects.toMatchObject({
+      code: 'FieldMismatch',
+    });
     spy.mockRestore();
   });
 
@@ -61,11 +67,14 @@ describe('DcapVerifier Public API', () => {
       .spyOn(QuoteParser, 'extractFMSPC')
       .mockImplementation(() => Buffer.from('b0c06f000000', 'hex'));
     verifier['collateralFetcher'].fetchTcbInfo = async () => {
-      throw new Error('fetch failed');
+      throw new QuoteVerificationError('CertificateError', 'fetch failed');
     };
     await expect(verifier.verifyQuote(quoteBytes, undefined)).rejects.toThrow(
-      /Failed to fetch TCB Info/,
+      QuoteVerificationError,
     );
+    await expect(verifier.verifyQuote(quoteBytes, undefined)).rejects.toMatchObject({
+      code: 'CertificateError',
+    });
     spy.mockRestore();
   });
 
@@ -78,7 +87,7 @@ describe('DcapVerifier Public API', () => {
 
   it('throws on parseQuote with bad input', () => {
     const verifier = new DcapVerifier();
-    expect(() => verifier.parseQuote(Buffer.from([1, 2, 3]))).toThrow();
+    expect(() => verifier.parseQuote(Buffer.from([1, 2, 3]))).toThrow(QuoteVerificationError);
   });
 
   it('automatically fetches collateral (mocked)', async () => {
@@ -110,9 +119,17 @@ describe('DcapVerifier Public API', () => {
       return origBufferFrom(value as ArrayLike<number>);
     }) as typeof Buffer.from;
     await expect(verifier.verifyQuote(quoteBytes, undefined)).rejects.toThrow(
-      /Quote verification failed: Failed to assemble collateral: Cannot read properties of undefined/,
+      /Failed to assemble collateral: Cannot read properties of undefined/,
     );
     Buffer.from = origBufferFrom;
     spy.mockRestore();
+  });
+
+  it('throws on non-buffer/Uint8Array input to verifyQuote', async () => {
+    const verifier = new DcapVerifier();
+    // @ts-expect-error Testing input validation: should throw on non-buffer input
+    await expect(verifier.verifyQuote('not a buffer', collateral)).rejects.toThrow(
+      QuoteVerificationError,
+    );
   });
 });

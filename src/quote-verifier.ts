@@ -8,6 +8,7 @@ import {
   VerificationStatus,
   TcbInfo,
   Quote,
+  QuoteVerificationError,
 } from './quote-types';
 import { sha256 } from '@noble/hashes/sha256';
 import {
@@ -36,85 +37,82 @@ export class QuoteVerifier {
     collateral: QuoteCollateralV3,
     now?: number,
   ): Promise<VerifiedReport> {
-    // Parse the quote
-    const quote = QuoteParser.parse(quoteBytes);
-    // 1. TCB Info Validation
-    const tcbInfo = this.validateTcbInfo(collateral.tcbInfo, quote, now);
-    if (!tcbInfo) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
-    const isTdx = quote.report.type === 'TD10' || quote.report.type === 'TD15';
+    try {
+      // Parse the quote
+      let quote: Quote;
+      try {
+        quote = QuoteParser.parse(quoteBytes);
+      } catch (err) {
+        if (err instanceof QuoteVerificationError) throw err;
+        throw new QuoteVerificationError('DecodeError', (err as Error).message);
+      }
+      // 1. TCB Info Validation
+      const tcbInfo = this.validateTcbInfo(collateral.tcbInfo, quote, now);
+      if (!tcbInfo) {
+        throw new QuoteVerificationError(
+          'TCBExpired',
+          'TCB Info is invalid, expired, or not yet valid.',
+        );
+      }
+      const isTdx = quote.report.type === 'TD10' || quote.report.type === 'TD15';
 
-    // 2. TCB Info Signature Validation
-    const tcbInfoSigValid = this.validateTcbInfoSignature(collateral);
-    if (!tcbInfoSigValid) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
+      // 2. TCB Info Signature Validation
+      const tcbInfoSigValid = this.validateTcbInfoSignature(collateral);
+      if (!tcbInfoSigValid) {
+        throw new QuoteVerificationError('SignatureError', 'TCB Info signature is invalid.');
+      }
 
-    // 3. Extract PCK and Auth Data
-    const pckAndAuth = this.extractPckAndAuthData(quote);
-    if (!pckAndAuth) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
-    const {
-      pckPemChain,
-      qeReport,
-      qeReportSignature,
-      ecdsaAttestationKey,
-      qeAuthData,
-      ecdsaSignature,
-    } = pckAndAuth;
+      // 3. Extract PCK and Auth Data
+      const pckAndAuth = this.extractPckAndAuthData(quote);
+      if (!pckAndAuth) {
+        throw new QuoteVerificationError(
+          'MissingField',
+          'Failed to extract PCK and Auth Data from quote.',
+        );
+      }
+      const {
+        pckPemChain,
+        qeReport,
+        qeReportSignature,
+        ecdsaAttestationKey,
+        qeAuthData,
+        ecdsaSignature,
+      } = pckAndAuth;
 
-    // 4. QE Report Signature Verification
-    const qeReportSigValid = this.verifyQeReportSignature(pckPemChain, qeReport, qeReportSignature);
-    if (!qeReportSigValid) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
+      // 4. QE Report Signature Verification
+      const qeReportSigValid = this.verifyQeReportSignature(
+        pckPemChain,
+        qeReport,
+        qeReportSignature,
+      );
+      if (!qeReportSigValid) {
+        throw new QuoteVerificationError('SignatureError', 'QE Report signature is invalid.');
+      }
 
-    // 5. QE Report Hash Check
-    const qeReportHashValid = this.verifyQeReportHash(ecdsaAttestationKey, qeAuthData, qeReport);
-    if (!qeReportHashValid) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
+      // 5. QE Report Hash Check
+      const qeReportHashValid = this.verifyQeReportHash(ecdsaAttestationKey, qeAuthData, qeReport);
+      if (!qeReportHashValid) {
+        throw new QuoteVerificationError('HashMismatch', 'QE Report hash mismatch.');
+      }
 
-    // 6. Quote Signature Verification
-    const quoteSigValid = this.verifyQuoteSignature(
-      quote,
-      quoteBytes,
-      ecdsaAttestationKey,
-      ecdsaSignature,
-    );
-    if (!quoteSigValid) {
-      return {
-        status: 'Unknown',
-        advisoryIds: [],
-        report: quote.report,
-      };
-    }
+      // 6. Quote Signature Verification
+      const quoteSigValid = this.verifyQuoteSignature(
+        quote,
+        quoteBytes,
+        ecdsaAttestationKey,
+        ecdsaSignature,
+      );
+      if (!quoteSigValid) {
+        throw new QuoteVerificationError('SignatureError', 'Quote signature is invalid.');
+      }
 
-    // 7. TCB Extraction and Status/Advisory Determination (skip CRL revocation check)
-    const tcbResult = this.extractTcbStatusAndAdvisories(quote, tcbInfo, isTdx);
-    return tcbResult;
+      // 7. TCB Extraction and Status/Advisory Determination (skip CRL revocation check)
+      const tcbResult = this.extractTcbStatusAndAdvisories(quote, tcbInfo, isTdx);
+      return tcbResult;
+    } catch (err) {
+      if (err instanceof QuoteVerificationError) throw err;
+      throw new QuoteVerificationError('UnknownError', (err as Error).message);
+    }
   }
 
   // --- Modularized Private Methods ---

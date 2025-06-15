@@ -1,6 +1,8 @@
 // Collateral Fetcher HTTP Client with Retry Logic
 // Implements subtask 4.1: HTTP client for PCCS/Intel PCS endpoints with timeout and retry
 
+import { QuoteVerificationError } from './quote-types';
+
 export interface FetchWithRetryOptions {
   timeout?: number; // ms
   retries?: number;
@@ -31,10 +33,16 @@ export async function fetchWithRetry(
       if (!response.ok) {
         // Retry on server errors (5xx)
         if (response.status >= 500 && response.status < 600) {
-          throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+          throw new QuoteVerificationError(
+            'CertificateError',
+            `HTTP error ${response.status}: ${response.statusText}`,
+          );
         }
         // For 4xx, do not retry
-        throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+        throw new QuoteVerificationError(
+          'CertificateError',
+          `HTTP error ${response.status}: ${response.statusText}`,
+        );
       }
       return await response.text();
     } catch (error: unknown) {
@@ -52,7 +60,10 @@ export async function fetchWithRetry(
   } else if (typeof lastError === 'string') {
     message = lastError;
   }
-  throw new Error(`Failed to fetch after ${retries} attempts: ${message}`);
+  throw new QuoteVerificationError(
+    'UnknownError',
+    `Failed to fetch after ${retries} attempts: ${message}`,
+  );
 }
 
 export interface CollateralFetchOptions {

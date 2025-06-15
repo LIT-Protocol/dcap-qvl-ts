@@ -1,6 +1,7 @@
-import { Quote, Header, EnclaveReport, AuthData, AuthDataV3, TDReport10 } from './quote-types.js';
+import { Quote, Header, EnclaveReport, AuthData, AuthDataV3, TDReport10 } from './quote-types';
 import { readUint16LE, readUint32LE, readBytes, validateBuffer } from './binary-utils';
 import { X509Certificate } from '@peculiar/x509';
+import { QuoteVerificationError } from './quote-types';
 
 const HEADER_BYTE_LEN = 48;
 const ENCLAVE_REPORT_BYTE_LEN = 384;
@@ -21,7 +22,14 @@ export class QuoteParser {
    * Detects version and TEE type, dispatches to the appropriate parser.
    */
   static parse(quoteBytes: Uint8Array): Quote {
-    validateBuffer(quoteBytes, 0, HEADER_BYTE_LEN + AUTH_DATA_SIZE_BYTE_LEN);
+    try {
+      validateBuffer(quoteBytes, 0, HEADER_BYTE_LEN + AUTH_DATA_SIZE_BYTE_LEN);
+    } catch (err) {
+      throw new QuoteVerificationError(
+        'DecodeError',
+        `Buffer too small or malformed: ${(err as Error).message}`,
+      );
+    }
     // Version is at offset 0, u16 LE
     const version = readUint16LE(quoteBytes, 0);
     const teeType = readUint32LE(quoteBytes, 4);
@@ -34,7 +42,10 @@ export class QuoteParser {
       case 4:
         return this.parseV4Quote(quoteBytes);
       default:
-        throw new Error(`Unsupported quote version: ${version}`);
+        throw new QuoteVerificationError(
+          'UnsupportedVersion',
+          `Unsupported quote version: ${version}`,
+        );
     }
   }
 
@@ -338,13 +349,16 @@ export class QuoteParser {
         quote.authData.data.qeReportData.certificationData.body.data,
       ).toString('utf8');
     } else {
-      throw new Error('Unsupported quote version for FMSPC extraction');
+      throw new QuoteVerificationError(
+        'UnsupportedVersion',
+        'Unsupported quote version for FMSPC extraction',
+      );
     }
     // Parse the first certificate in the chain
     const pattern = /-+BEGIN CERTIFICATE-+[\s\S]*?-+END CERTIFICATE-+/g;
     const matches = (certChainPem || '').match(pattern) || [];
     if (matches.length === 0) {
-      throw new Error('No certificates found in quote');
+      throw new QuoteVerificationError('MissingField', 'No certificates found in quote');
     }
     const firstCertPem = matches[0]!;
     // Use @peculiar/x509 to parse the certificate
@@ -366,7 +380,7 @@ export class QuoteParser {
       }
     }
     if (!fmspcValue || fmspcValue.length !== 6) {
-      throw new Error('FMSPC not found or invalid length');
+      throw new QuoteVerificationError('MissingField', 'FMSPC not found or invalid length');
     }
     return fmspcValue;
   }
@@ -376,7 +390,11 @@ export class QuoteParser {
    * Not implemented: would require parsing the collateral
    */
   static extractTCBInfo(): unknown {
-    throw new Error('extractTCBInfo not implemented: requires collateral parsing');
+    // NotImplemented is not a valid code; use UnknownError for unimplemented features
+    throw new QuoteVerificationError(
+      'UnknownError',
+      'extractTCBInfo not implemented: requires collateral parsing',
+    );
   }
 
   /**

@@ -9,6 +9,7 @@
 import forge from 'node-forge';
 import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
+import { QuoteVerificationError } from './quote-types';
 
 /**
  * Convert a PEM-encoded P-256 public key to raw uncompressed key bytes (Uint8Array, 65 bytes).
@@ -27,16 +28,18 @@ export function pemToRawP256PublicKey(pem: string): Uint8Array {
   const asn1 = forge.asn1.fromDer(forge.util.createBuffer(der));
   // asn1.value[1] is the BIT STRING (public key)
   if (!Array.isArray(asn1.value) || asn1.value.length < 2)
-    throw new Error('Invalid SPKI structure');
+    throw new QuoteVerificationError('DecodeError', 'Invalid SPKI structure');
   const bitString = asn1.value[1];
   // bitString.value is a string, first byte is unused bits count, rest is key
-  if (typeof bitString.value !== 'string') throw new Error('Invalid BIT STRING');
+  if (typeof bitString.value !== 'string')
+    throw new QuoteVerificationError('DecodeError', 'Invalid BIT STRING');
   const bytes = Buffer.from(bitString.value, 'binary');
   // First byte is unused bits count (should be 0)
-  if (bytes[0] !== 0x00) throw new Error('Unexpected unused bits in BIT STRING');
+  if (bytes[0] !== 0x00)
+    throw new QuoteVerificationError('FieldMismatch', 'Unexpected unused bits in BIT STRING');
   const pubkey = bytes.slice(1); // 65 bytes for uncompressed P-256
   if (pubkey.length !== 65 || pubkey[0] !== 0x04)
-    throw new Error('Not an uncompressed P-256 public key');
+    throw new QuoteVerificationError('FieldMismatch', 'Not an uncompressed P-256 public key');
   return new Uint8Array(pubkey);
 }
 
@@ -106,7 +109,8 @@ export function verifyEcdsaSignature({
  * @returns DER-encoded signature (Uint8Array)
  */
 export function rawEcdsaSigToDer(rawSig: Uint8Array): Uint8Array {
-  if (rawSig.length !== 64) throw new Error('Raw ECDSA signature must be 64 bytes');
+  if (rawSig.length !== 64)
+    throw new QuoteVerificationError('FieldMismatch', 'Raw ECDSA signature must be 64 bytes');
   // Use @noble/curves helper: toDERHex returns a hex string, so convert to Uint8Array
   const derHex = p256.Signature.fromCompact(rawSig).toDERHex();
   return new Uint8Array(Buffer.from(derHex, 'hex'));
@@ -176,16 +180,20 @@ export function validateCertificateChain(
   options?: { trustedRoots?: Array<forge.pki.Certificate | string>; date?: Date },
 ): boolean {
   if (!Array.isArray(certs) || certs.length < 2) {
-    throw new Error('Certificate chain must have at least leaf and root');
+    throw new QuoteVerificationError(
+      'CertificateError',
+      'Certificate chain must have at least leaf and root',
+    );
   }
   const date = options?.date || new Date();
   // Check validity periods
   for (const cert of certs) {
     if (!cert.validity.notBefore || !cert.validity.notAfter) {
-      throw new Error('Certificate missing validity period');
+      throw new QuoteVerificationError('CertificateError', 'Certificate missing validity period');
     }
     if (date < cert.validity.notBefore || date > cert.validity.notAfter) {
-      throw new Error(
+      throw new QuoteVerificationError(
+        'CertificateError',
         `Certificate expired or not yet valid: ${cert.subject.getField('CN')?.value}`,
       );
     }
@@ -201,9 +209,9 @@ export function validateCertificateChain(
       });
     } catch (err: unknown) {
       if (err instanceof Error && err.message) {
-        throw err;
+        throw new QuoteVerificationError('CertificateError', err.message);
       } else {
-        throw new Error('Certificate chain validation failed');
+        throw new QuoteVerificationError('CertificateError', 'Certificate chain validation failed');
       }
     }
     return true;
@@ -213,7 +221,10 @@ export function validateCertificateChain(
       const child = certs[i];
       const parent = certs[i + 1];
       if (!child.verify(parent)) {
-        throw new Error(`Certificate signature invalid at position ${i}`);
+        throw new QuoteVerificationError(
+          'CertificateError',
+          `Certificate signature invalid at position ${i}`,
+        );
       }
     }
     return true;

@@ -1,5 +1,5 @@
 import { QuoteParser } from '../src/quote-parser';
-import { Quote } from '../src/quote-types';
+import { Quote, QuoteVerificationError } from '../src/quote-types';
 
 // Example valid SGX v3 quote (structurally valid, not cryptographically valid)
 const headerSize = 48;
@@ -148,6 +148,9 @@ describe('QuoteParser', () => {
   it('throws on invalid (too short) quote', () => {
     expect(() => {
       QuoteParser.parse(invalidQuote);
+    }).toThrow(QuoteVerificationError);
+    expect(() => {
+      QuoteParser.parse(invalidQuote);
     }).toThrow(/buffer/i);
   });
 
@@ -156,7 +159,15 @@ describe('QuoteParser', () => {
     unsupported[0] = 0x09; // version = 9
     expect(() => {
       QuoteParser.parse(unsupported);
+    }).toThrow(QuoteVerificationError);
+    expect(() => {
+      QuoteParser.parse(unsupported);
     }).toThrow(/unsupported/i);
+  });
+
+  it('throws on non-Uint8Array input to parse', () => {
+    // @ts-expect-error Testing input validation: should throw on non-Uint8Array input
+    expect(() => QuoteParser.parse('not a buffer')).toThrow(QuoteVerificationError);
   });
 
   // Add more tests for TDX, v4, malformed data, etc. as needed

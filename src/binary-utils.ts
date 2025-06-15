@@ -2,11 +2,13 @@
 // Handles little-endian and big-endian formats
 
 import asn1 from 'asn1.js';
+import { QuoteVerificationError } from './quote-types';
 
 /** Validates that the buffer has enough bytes from the given offset. */
 export function validateBuffer(buffer: Uint8Array, offset: number, length: number): void {
   if (offset < 0 || offset + length > buffer.length) {
-    throw new RangeError(
+    throw new QuoteVerificationError(
+      'DecodeError',
       `Buffer too small: need ${length} bytes at offset ${offset}, but buffer length is ${buffer.length}`,
     );
   }
@@ -170,7 +172,7 @@ export function parseCertificate(cert: Uint8Array | string): MinimalEcdsaCert {
   const spki = decoded.tbsCertificate.subjectPublicKeyInfo;
   const pubkeyBitStr: Buffer = spki.subjectPublicKey.data;
   if (pubkeyBitStr.length !== 65 || pubkeyBitStr[0] !== 0x04) {
-    throw new Error('Invalid ECDSA public key');
+    throw new QuoteVerificationError('FieldMismatch', 'Invalid ECDSA public key');
   }
   return { publicKey: new Uint8Array(pubkeyBitStr) };
 }

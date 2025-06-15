@@ -6,7 +6,7 @@ A JavaScript/TypeScript port of the [Phala-Network/dcap-qvl](https://github.com/
 
 ## Overview
 
-This library implements quote verification logic for DCAP (Data Center Attestation Primitives) in pure JavaScript/TypeScript. It is inspired by and ports the functionality of the original Rust crate, supporting SGX and TDX quotes.
+This library implements quote verification logic for DCAP (Data Center Attestation Primitives) in pure JavaScript/TypeScript. It is a direct port of the original Rust crate, supporting SGX and TDX quotes.
 
 ## Features
 

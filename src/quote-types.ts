@@ -170,9 +170,13 @@ export type QuoteVerificationErrorCode =
  * - code: error code (see QuoteVerificationErrorCode)
  * - message: human-readable error message
  */
-export interface QuoteVerificationError {
+export class QuoteVerificationError extends Error {
   code: QuoteVerificationErrorCode;
-  message: string;
+  constructor(code: QuoteVerificationErrorCode, message: string) {
+    super(message);
+    this.code = code;
+    this.name = 'QuoteVerificationError';
+  }
 }
 
 // TCB Info structures for SGX/TDX (matches Rust dcap-qvl)

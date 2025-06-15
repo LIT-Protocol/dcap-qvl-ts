@@ -17,6 +17,7 @@ import {
   VerificationStatus,
   EnclaveReport,
   QuoteCollateralV3,
+  QuoteVerificationError,
 } from './quote-types';
 
 /**
@@ -58,26 +59,38 @@ export class DcapVerifier {
       try {
         parsedQuote = QuoteParser.parse(quoteBytes);
       } catch (err) {
-        throw new Error(`Malformed quote: ${(err as Error).message}`);
+        throw new QuoteVerificationError(
+          'DecodeError',
+          `Malformed quote: ${(err as Error).message}`,
+        );
       }
       let fmspc: string;
       try {
         const fmspcBytes = QuoteParser.extractFMSPC(parsedQuote);
         fmspc = Buffer.from(fmspcBytes).toString('hex');
       } catch (err) {
-        throw new Error(`Failed to extract FMSPC from quote: ${(err as Error).message}`);
+        throw new QuoteVerificationError(
+          'FieldMismatch',
+          `Failed to extract FMSPC from quote: ${(err as Error).message}`,
+        );
       }
       // Fetch TCB Info and QE Identity
       let tcbInfoRaw: string, qeIdentityRaw: string;
       try {
         tcbInfoRaw = await this.collateralFetcher.fetchTcbInfo(fmspc);
       } catch (err) {
-        throw new Error(`Failed to fetch TCB Info for FMSPC ${fmspc}: ${(err as Error).message}`);
+        throw new QuoteVerificationError(
+          'CertificateError',
+          `Failed to fetch TCB Info for FMSPC ${fmspc}: ${(err as Error).message}`,
+        );
       }
       try {
         qeIdentityRaw = await this.collateralFetcher.fetchQeIdentity();
       } catch (err) {
-        throw new Error(`Failed to fetch QE Identity: ${(err as Error).message}`);
+        throw new QuoteVerificationError(
+          'CertificateError',
+          `Failed to fetch QE Identity: ${(err as Error).message}`,
+        );
       }
       // Parse and assemble QuoteCollateralV3
       let tcbInfoJson, qeIdentityJson;
@@ -85,7 +98,10 @@ export class DcapVerifier {
         tcbInfoJson = JSON.parse(tcbInfoRaw);
         qeIdentityJson = JSON.parse(qeIdentityRaw);
       } catch (err) {
-        throw new Error(`Failed to parse collateral JSON: ${(err as Error).message}`);
+        throw new QuoteVerificationError(
+          'DecodeError',
+          `Failed to parse collateral JSON: ${(err as Error).message}`,
+        );
       }
       // Extract required fields and signatures
       try {
@@ -114,11 +130,17 @@ export class DcapVerifier {
         };
         return await this.verifier.verify(quoteBytes, assembledCollateral, now);
       } catch (err) {
-        throw new Error(`Failed to assemble collateral: ${(err as Error).message}`);
+        throw new QuoteVerificationError(
+          'CertificateError',
+          `Failed to assemble collateral: ${(err as Error).message}`,
+        );
       }
     } catch (err) {
-      // Robust error handling: always throw a descriptive error
-      throw new Error(`Quote verification failed: ${(err as Error).message}`);
+      if (err instanceof QuoteVerificationError) throw err;
+      throw new QuoteVerificationError(
+        'UnknownError',
+        `Quote verification failed: ${(err as Error).message}`,
+      );
     }
   }
 
