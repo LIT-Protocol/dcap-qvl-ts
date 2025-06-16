@@ -119,8 +119,11 @@ describe('DcapVerifier Public API', () => {
       return origBufferFrom(value as ArrayLike<number>);
     }) as typeof Buffer.from;
     await expect(verifier.verifyQuote(quoteBytes, undefined)).rejects.toThrow(
-      /Failed to assemble collateral: Cannot read properties of undefined/,
+      QuoteVerificationError,
     );
+    await expect(verifier.verifyQuote(quoteBytes, undefined)).rejects.toMatchObject({
+      code: 'CertificateError',
+    });
     Buffer.from = origBufferFrom;
     spy.mockRestore();
   });

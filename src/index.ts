@@ -96,25 +96,44 @@ export class DcapVerifier {
         );
       }
       // Parse and assemble QuoteCollateralV3
-      let tcbInfoJson, qeIdentityJson;
+      let tcbInfoJson, tcbInfoIssuerChain;
       try {
-        tcbInfoJson = JSON.parse(tcbInfoRaw);
+        const result = await this.collateralFetcher.fetchTcbInfoWithIssuerChain(fmspc);
+        tcbInfoJson = result.tcbInfoJson;
+        tcbInfoIssuerChain = result.issuerChain;
+        if (!tcbInfoIssuerChain || !tcbInfoIssuerChain.includes('-----BEGIN CERTIFICATE-----')) {
+          console.error(
+            '[ERROR] tcbInfoIssuerChain is missing or not PEM (from HTTP header):',
+            tcbInfoIssuerChain,
+          );
+          throw new QuoteVerificationError(
+            'CertificateError',
+            'Missing or invalid tcbInfoIssuerChain (not PEM) in TCB Info HTTP header. Value: ' +
+              tcbInfoIssuerChain.slice(0, 40) +
+              '... Headers: ' +
+              JSON.stringify(result.tcbInfoJson),
+          );
+        }
+      } catch (err) {
+        throw new QuoteVerificationError(
+          'CertificateError',
+          `Failed to fetch TCB Info for FMSPC ${fmspc}: ${(err as Error).message}`,
+        );
+      }
+      // Extract required fields and signatures
+      let qeIdentityJson;
+      try {
         qeIdentityJson = JSON.parse(qeIdentityRaw);
       } catch (err) {
         throw new QuoteVerificationError(
           'DecodeError',
-          `Failed to parse collateral JSON: ${(err as Error).message}`,
+          `Failed to parse QE Identity JSON: ${(err as Error).message}`,
         );
       }
-      // Extract required fields and signatures
       try {
         const tcbInfo = tcbInfoJson.tcbInfo ? JSON.stringify(tcbInfoJson.tcbInfo) : tcbInfoRaw;
         const tcbInfoSignature = Buffer.from(tcbInfoJson.signature, 'hex');
-        const tcbInfoIssuerChain =
-          tcbInfoJson['tcbInfoIssuerChain'] ||
-          tcbInfoJson['SGX-TCB-Info-Issuer-Chain'] ||
-          tcbInfoJson['TCB-Info-Issuer-Chain'] ||
-          '';
+        // Use tcbInfoIssuerChain from HTTP header (already validated above)
         const qeIdentity = qeIdentityJson.enclaveIdentity
           ? JSON.stringify(qeIdentityJson.enclaveIdentity)
           : qeIdentityRaw;

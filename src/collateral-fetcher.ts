@@ -303,6 +303,30 @@ export class CollateralFetcher {
     }
     return result;
   }
+
+  /**
+   * Fetch TCB Info and issuer chain from PCCS or Intel PCS, using HTTP headers for the chain (Rust logic).
+   * @param fmspc FMSPC identifier (hex string)
+   * @returns { tcbInfoJson, issuerChain }
+   */
+  async fetchTcbInfoWithIssuerChain(
+    fmspc: string,
+  ): Promise<{ tcbInfoJson: any; issuerChain: string }> {
+    const endpoint = `${this.baseUrl}/tcb?fmspc=${encodeURIComponent(fmspc)}`;
+    console.log('[DEBUG] fetchTcbInfoWithIssuerChain endpoint:', endpoint);
+    const response = await fetch(endpoint, { method: 'GET' });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch TCB Info: ${response.status} ${response.statusText}`);
+    }
+    // Try both header names, just like Rust
+    const rawIssuerChain =
+      response.headers.get('TCB-Info-Issuer-Chain') ||
+      response.headers.get('SGX-TCB-Info-Issuer-Chain') ||
+      '';
+    const issuerChain = decodeURIComponent(rawIssuerChain);
+    const tcbInfoJson = await response.json();
+    return { tcbInfoJson, issuerChain };
+  }
 }
 
 // --- Integration Test Structure (Outline) ---
