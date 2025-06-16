@@ -86,7 +86,11 @@ export function verifyEcdsaSignature({
     sigToVerify = rawEcdsaSigToDer(signature);
   }
 
-  // p256.verify expects a DER-encoded signature, a message hash, and a public key
+  // Debug logs for signature verification
+  console.log('[DEBUG] verifyEcdsaSignature:');
+  console.log('  publicKey (hex):', Buffer.from(pubkeyBytes).toString('hex'));
+  console.log('  message (hex):', Buffer.from(message).toString('hex'));
+  console.log('  signature (hex):', Buffer.from(signature).toString('hex'));
   try {
     // The message must be hashed with SHA256 before verification.
     const msgHash = sha256(message);
