@@ -345,22 +345,22 @@ export class QuoteParser {
     let certChainPem: string | undefined;
     if (quote.authData.version === 3) {
       certChainPem = Buffer.from(quote.authData.data.certificationData.body.data).toString('utf8');
-      console.log(
-        '[FMSPC DEBUG] Using V3 cert chain, length:',
-        certChainPem.length,
-        'snippet:',
-        certChainPem.slice(0, 100),
-      );
+      // console.log(
+      //   '[FMSPC DEBUG] Using V3 cert chain, length:',
+      //   certChainPem.length,
+      //   'snippet:',
+      //   certChainPem.slice(0, 100),
+      // );
     } else if (quote.authData.version === 4) {
       certChainPem = Buffer.from(
         quote.authData.data.qeReportData.certificationData.body.data,
       ).toString('utf8');
-      console.log(
-        '[FMSPC DEBUG] Using V4 (TDX) cert chain, length:',
-        certChainPem.length,
-        'snippet:',
-        certChainPem.slice(0, 100),
-      );
+      // console.log(
+      //   '[FMSPC DEBUG] Using V4 (TDX) cert chain, length:',
+      //   certChainPem.length,
+      //   'snippet:',
+      //   certChainPem.slice(0, 100),
+      // );
     } else {
       throw new QuoteVerificationError(
         'UnsupportedVersion',
@@ -376,20 +376,19 @@ export class QuoteParser {
     const firstCertPem = matches[0]!;
     // Use @peculiar/x509 to parse the certificate
     const cert = new X509Certificate(firstCertPem);
-    const FMSPC_OID = '1.2.840.113741.1.13.1.4';
     // Debug: print all extension OIDs and their values in the first certificate
     for (const ext of cert.extensions) {
       const value = new Uint8Array(ext.value);
-      console.log(
-        '[FMSPC DEBUG] Extension OID:',
-        ext.type,
-        'value (hex):',
-        Buffer.from(value).toString('hex'),
-        'length:',
-        value.length,
-        'Buffer:',
-        value,
-      );
+      // console.log(
+      //   '[FMSPC DEBUG] Extension OID:',
+      //   ext.type,
+      //   'value (hex):',
+      //   Buffer.from(value).toString('hex'),
+      //   'length:',
+      //   value.length,
+      //   'Buffer:',
+      //   value,
+      // );
     }
     let fmspcValue: Uint8Array | undefined;
     for (const ext of cert.extensions) {
@@ -398,18 +397,18 @@ export class QuoteParser {
         const value = new Uint8Array(ext.value);
         try {
           const asn1 = forge.asn1.fromDer(forge.util.createBuffer(value));
-          console.log('[FMSPC DEBUG] Parsed ASN.1 structure:', JSON.stringify(asn1, null, 2));
+          // console.log('[FMSPC DEBUG] Parsed ASN.1 structure:', JSON.stringify(asn1, null, 2));
           const fmspcAsn1 = QuoteParser.findOidValue(asn1, '1.2.840.113741.1.13.1.4');
           if (fmspcAsn1 && fmspcAsn1.type === forge.asn1.Type.OCTETSTRING) {
             const octetBytes = fmspcAsn1.value;
             if (typeof octetBytes === 'string') {
               const octetBuf = Buffer.from(octetBytes, 'binary');
-              console.log(
-                '[FMSPC DEBUG] Found FMSPC OID, value:',
-                octetBuf.toString('hex'),
-                'length:',
-                octetBuf.length,
-              );
+              // console.log(
+              //   '[FMSPC DEBUG] Found FMSPC OID, value:',
+              //   octetBuf.toString('hex'),
+              //   'length:',
+              //   octetBuf.length,
+              // );
               fmspcValue = new Uint8Array(octetBuf).slice(0, 6);
             }
           }
