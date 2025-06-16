@@ -132,4 +132,16 @@ describe('DcapVerifier Public API', () => {
       QuoteVerificationError,
     );
   });
+
+  it('verifies a TDX quote with automatic collateral fetching', async () => {
+    const tdxHexPath = path.join(process.cwd(), 'dcap-qvl-rust/sample/tdx-quote.hex');
+    const hexString = fs.readFileSync(tdxHexPath, 'utf8').replace(/^0x/, '').replace(/\s+/g, '');
+    const tdxQuoteBytes = Buffer.from(hexString, 'hex');
+    const verifier = new DcapVerifier({ isTdx: true });
+    const result = await verifier.verifyQuote(tdxQuoteBytes);
+    expect(result.status).toBeDefined();
+    expect(result.report).toBeDefined();
+    expect(Array.isArray(result.advisoryIds)).toBe(true);
+    expect(result.report.type).toBe('TD10');
+  });
 });

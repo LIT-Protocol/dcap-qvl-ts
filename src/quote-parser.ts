@@ -2,6 +2,7 @@ import { Quote, Header, EnclaveReport, AuthData, AuthDataV3, TDReport10 } from '
 import { readUint16LE, readUint32LE, readBytes, validateBuffer } from './binary-utils';
 import { X509Certificate } from '@peculiar/x509';
 import { QuoteVerificationError } from './quote-types';
+import forge from 'node-forge';
 
 const HEADER_BYTE_LEN = 48;
 const ENCLAVE_REPORT_BYTE_LEN = 384;
@@ -344,10 +345,22 @@ export class QuoteParser {
     let certChainPem: string | undefined;
     if (quote.authData.version === 3) {
       certChainPem = Buffer.from(quote.authData.data.certificationData.body.data).toString('utf8');
+      console.log(
+        '[FMSPC DEBUG] Using V3 cert chain, length:',
+        certChainPem.length,
+        'snippet:',
+        certChainPem.slice(0, 100),
+      );
     } else if (quote.authData.version === 4) {
       certChainPem = Buffer.from(
         quote.authData.data.qeReportData.certificationData.body.data,
       ).toString('utf8');
+      console.log(
+        '[FMSPC DEBUG] Using V4 (TDX) cert chain, length:',
+        certChainPem.length,
+        'snippet:',
+        certChainPem.slice(0, 100),
+      );
     } else {
       throw new QuoteVerificationError(
         'UnsupportedVersion',
@@ -364,19 +377,45 @@ export class QuoteParser {
     // Use @peculiar/x509 to parse the certificate
     const cert = new X509Certificate(firstCertPem);
     const FMSPC_OID = '1.2.840.113741.1.13.1.4';
-    // Debug: print all extension OIDs in the first certificate
-    console.log(
-      '[FMSPC DEBUG] All extension OIDs in first cert:',
-      cert.extensions.map((e) => e.type),
-    );
+    // Debug: print all extension OIDs and their values in the first certificate
+    for (const ext of cert.extensions) {
+      const value = new Uint8Array(ext.value);
+      console.log(
+        '[FMSPC DEBUG] Extension OID:',
+        ext.type,
+        'value (hex):',
+        Buffer.from(value).toString('hex'),
+        'length:',
+        value.length,
+        'Buffer:',
+        value,
+      );
+    }
     let fmspcValue: Uint8Array | undefined;
     for (const ext of cert.extensions) {
-      if (ext.type === FMSPC_OID) {
-        // ext.value is an ArrayBuffer
+      if (ext.type === '1.2.840.113741.1.13.1') {
+        // Intel SGX extension: parse as ASN.1 and search for FMSPC OID
         const value = new Uint8Array(ext.value);
-        fmspcValue = value.slice(0, 6);
-        console.log('[FMSPC DEBUG] FMSPC extension value:', Buffer.from(value).toString('hex'));
-        break;
+        try {
+          const asn1 = forge.asn1.fromDer(forge.util.createBuffer(value));
+          console.log('[FMSPC DEBUG] Parsed ASN.1 structure:', JSON.stringify(asn1, null, 2));
+          const fmspcAsn1 = QuoteParser.findOidValue(asn1, '1.2.840.113741.1.13.1.4');
+          if (fmspcAsn1 && fmspcAsn1.type === forge.asn1.Type.OCTETSTRING) {
+            const octetBytes = fmspcAsn1.value;
+            if (typeof octetBytes === 'string') {
+              const octetBuf = Buffer.from(octetBytes, 'binary');
+              console.log(
+                '[FMSPC DEBUG] Found FMSPC OID, value:',
+                octetBuf.toString('hex'),
+                'length:',
+                octetBuf.length,
+              );
+              fmspcValue = new Uint8Array(octetBuf).slice(0, 6);
+            }
+          }
+        } catch (e) {
+          console.log('[FMSPC DEBUG] ASN.1 decode error (Intel SGX ext):', e);
+        }
       }
     }
     if (!fmspcValue || fmspcValue.length !== 6) {
@@ -405,6 +444,32 @@ export class QuoteParser {
       return quote.authData.data.ecdsaSignature;
     } else if (quote.authData.version === 4) {
       return quote.authData.data.ecdsaSignature;
+    }
+    return undefined;
+  }
+
+  // Helper: recursively search ASN.1 structure for a given OID and return its value
+  private static findOidValue(asn1: any, oidStr: string): any {
+    if (!asn1) return undefined;
+    // Look for SEQUENCE [OID, value]
+    if (asn1.type === forge.asn1.Type.SEQUENCE && Array.isArray(asn1.value)) {
+      if (
+        asn1.value.length === 2 &&
+        asn1.value[0].type === forge.asn1.Type.OID &&
+        forge.asn1.derToOid(asn1.value[0].value) === oidStr
+      ) {
+        return asn1.value[1];
+      }
+      // Otherwise, recurse into children
+      for (const child of asn1.value) {
+        const found = QuoteParser.findOidValue(child, oidStr);
+        if (found) return found;
+      }
+    } else if (Array.isArray(asn1.value)) {
+      for (const child of asn1.value) {
+        const found = QuoteParser.findOidValue(child, oidStr);
+        if (found) return found;
+      }
     }
     return undefined;
   }
