@@ -100,11 +100,14 @@ export class CollateralFetcher {
 
   constructor(options: CollateralFetchOptions = {}) {
     this.options = {
-      pccsUrl: 'https://localhost:8081/sgx/certification/v4',
-      useIntelPCS: false,
+      pccsUrl: options.isTdx
+        ? 'https://localhost:8081/tdx/certification/v4'
+        : 'https://localhost:8081/sgx/certification/v4',
+      useIntelPCS: true,
       timeout: 30000,
       retries: 3,
       cacheResults: true,
+      isTdx: true,
       ...options,
     };
     this.cache = new Map();
@@ -195,14 +198,21 @@ export class CollateralFetcher {
       return this.cache.get(cacheKey) as string;
     }
     const endpoint = `${this.baseUrl}/tcb?fmspc=${encodeURIComponent(fmspc)}`;
-    const result = await fetchWithRetry(endpoint, {
-      timeout: this.options.timeout,
-      retries: this.options.retries,
-    });
-    if (this.options.cacheResults) {
-      this.cache.set(cacheKey, result);
+    console.log('[DEBUG] fetchTcbInfo endpoint:', endpoint);
+    try {
+      const result = await fetchWithRetry(endpoint, {
+        timeout: this.options.timeout,
+        retries: this.options.retries,
+      });
+      console.log('[DEBUG] fetchTcbInfo result (truncated):', result.slice(0, 200));
+      if (this.options.cacheResults) {
+        this.cache.set(cacheKey, result);
+      }
+      return result;
+    } catch (err) {
+      console.log('[DEBUG] fetchTcbInfo error:', err);
+      throw err;
     }
-    return result;
   }
 
   /**

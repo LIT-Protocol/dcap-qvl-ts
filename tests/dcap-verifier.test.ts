@@ -137,7 +137,7 @@ describe('DcapVerifier Public API', () => {
     const tdxHexPath = path.join(process.cwd(), 'dcap-qvl-rust/sample/tdx-quote.hex');
     const hexString = fs.readFileSync(tdxHexPath, 'utf8').replace(/^0x/, '').replace(/\s+/g, '');
     const tdxQuoteBytes = Buffer.from(hexString, 'hex');
-    const verifier = new DcapVerifier({ isTdx: true });
+    const verifier = new DcapVerifier();
     const result = await verifier.verifyQuote(tdxQuoteBytes);
     expect(result.status).toBeDefined();
     expect(result.report).toBeDefined();

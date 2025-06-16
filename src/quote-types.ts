@@ -219,7 +219,7 @@ export interface VerificationOptions {
    */
   pccsUrl?: string;
   /**
-   * Use Intel PCS instead of PCCS (default: false)
+   * Use Intel PCS instead of PCCS (default: true)
    */
   useIntelPCS?: boolean;
   /**
@@ -235,7 +235,7 @@ export interface VerificationOptions {
    */
   cacheResults?: boolean;
   /**
-   * Set to true for TDX quote/collateral support (default: false)
+   * Set to true for TDX quote/collateral support (default: true)
    */
   isTdx?: boolean;
 }

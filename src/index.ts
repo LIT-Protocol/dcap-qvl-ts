@@ -64,6 +64,7 @@ export class DcapVerifier {
       try {
         const fmspcBytes = QuoteParser.extractFMSPC(parsedQuote);
         fmspc = Buffer.from(fmspcBytes).toString('hex');
+        console.log('[DEBUG] Extracted FMSPC:', fmspc);
       } catch (err) {
         throw new QuoteVerificationError(
           'FieldMismatch',
@@ -73,6 +74,12 @@ export class DcapVerifier {
       // Fetch TCB Info and QE Identity
       let tcbInfoRaw: string, qeIdentityRaw: string;
       try {
+        if (this.collateralFetcher['options']?.isTdx) {
+          console.log(
+            '[DEBUG] Fetching TCB Info for TDX, URL:',
+            this.collateralFetcher['baseUrl'] + '/tcb?fmspc=' + fmspc,
+          );
+        }
         tcbInfoRaw = await this.collateralFetcher.fetchTcbInfo(fmspc);
       } catch (err) {
         throw new QuoteVerificationError(
