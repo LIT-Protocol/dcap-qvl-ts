@@ -1,3 +1,7 @@
+# This project is not working yet - do not use it.
+
+There is WASM code that accomplishes the same thing in the [Phala-Network/dcap-qvl](https://github.com/Phala-Network/dcap-qvl) project.
+
 # dcap-js
 
 [![MIT License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
